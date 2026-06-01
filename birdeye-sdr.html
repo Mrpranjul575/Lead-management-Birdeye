@@ -1,30 +1,16 @@
 <!DOCTYPE html>
-<html lang="en" class="dark">
+<html lang="en">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>Birdeye SDR Workspace — Work Queue</title>
+<title>Birdeye SDR Workspace</title>
 <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://cdn.tailwindcss.com"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-<script>
-tailwind.config = {
-  darkMode: 'class',
-  theme: {
-    extend: {
-      fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'monospace'],
-      },
-    },
-  },
-}
-</script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <style>
-:root{--bg:#0d1117;--s1:#161b22;--s2:#1c2128;--s3:#21262d;--b1:#30363d;--b2:#484f58;--t1:#e6edf3;--t2:#8b949e;--t3:#484f58;--p:#5b3fc8;--p-dim:#4828b5;--p-glow:#7c5ce8;--p-chip:rgba(91,63,200,0.18);--p-soft:rgba(91,63,200,0.08);}
+:root{--bg:#0d1117;--s1:#161b22;--s2:#1c2128;--s3:#21262d;--b1:#30363d;--b2:#484f58;--t1:#e6edf3;--t2:#8b949e;--t3:#484f58;--p:#5b3fc8;--p-dim:#4828b5;--p-glow:#7c5ce8;--p-chip:rgba(91,63,200,0.18);--p-soft:rgba(91,63,200,0.08);--red:#ef4444;--amber:#f59e0b;--green:#10b981;--blue:#3b82f6;}
 html.light{--bg:#f8f9fa;--s1:#fff;--s2:#f3f4f5;--s3:#eaebed;--b1:#e5e7eb;--b2:#d1d5db;--t1:#111827;--t2:#6b7280;--t3:#9ca3af;--p-chip:rgba(91,63,200,0.1);--p-soft:rgba(91,63,200,0.05);}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:var(--bg);color:var(--t1);font-family:Inter,system-ui,sans-serif;font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased;}
@@ -33,569 +19,294 @@ body{background:var(--bg);color:var(--t1);font-family:Inter,system-ui,sans-serif
 @keyframes glow{0%,100%{box-shadow:0 0 0 rgba(91,63,200,0);}50%{box-shadow:0 0 16px 4px rgba(91,63,200,0.45);}}
 .fade-up{animation:.2s ease-out both fadeUp;}
 .ai-glow{animation:2.5s ease-in-out infinite glow;}
+input,textarea,select,button{font-family:inherit;}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useCallback, useMemo, createContext, useContext } = React;
+const {useState,useEffect,useCallback,useMemo,useRef,createContext,useContext}=React;
 
-// ═══════════════════════════════════════════════
-// CONSTANTS
-// ═══════════════════════════════════════════════
-const STAGES = ['New','Contacted','Follow Up','Hot','Demo Booked','Nurturing','Re-engage','Converted','Lost'];
-const STAGE_STYLE = {
-  'New':{bg:'rgba(59,130,246,0.15)',color:'#60a5fa',border:'rgba(59,130,246,0.3)'},
-  'Contacted':{bg:'rgba(245,158,11,0.15)',color:'#fcd34d',border:'rgba(245,158,11,0.3)'},
-  'Follow Up':{bg:'rgba(56,189,248,0.15)',color:'#38bdf8',border:'rgba(56,189,248,0.3)'},
-  'Hot':{bg:'rgba(239,68,68,0.15)',color:'#f87171',border:'rgba(239,68,68,0.3)'},
-  'Demo Booked':{bg:'rgba(91,63,200,0.18)',color:'#7c5ce8',border:'rgba(91,63,200,0.35)'},
-  'Nurturing':{bg:'rgba(236,72,153,0.15)',color:'#f472b6',border:'rgba(236,72,153,0.3)'},
-  'Re-engage':{bg:'rgba(251,146,60,0.15)',color:'#fb923c',border:'rgba(251,146,60,0.3)'},
-  'Converted':{bg:'rgba(16,185,129,0.15)',color:'#34d399',border:'rgba(16,185,129,0.3)'},
-  'Lost':{bg:'rgba(239,68,68,0.12)',color:'#f87171',border:'rgba(239,68,68,0.2)'},
-};
-const INTENT_STYLE = {
-  'AI Visibility':{bg:'rgba(91,63,200,0.15)',color:'#7c5ce8'},
-  'Review Growth':{bg:'rgba(59,130,246,0.15)',color:'#60a5fa'},
-  'Listings':{bg:'rgba(16,185,129,0.15)',color:'#34d399'},
-  'Competitor Dominance':{bg:'rgba(239,68,68,0.15)',color:'#f87171'},
-  'Local SEO':{bg:'rgba(245,158,11,0.15)',color:'#fcd34d'},
-};
-const INTENTS = Object.keys(INTENT_STYLE);
+// ═══ CONSTANTS ═══
+const STAGES=[''+'New','Contacted','Follow Up','Hot','Demo Booked','Nurturing','Re-engage','Converted','Lost'];
+const STAGE_STYLE={'New':{bg:'rgba(59,130,246,0.15)',color:'#60a5fa',border:'rgba(59,130,246,0.3)'},'Contacted':{bg:'rgba(245,158,11,0.15)',color:'#fcd34d',border:'rgba(245,158,11,0.3)'},'Follow Up':{bg:'rgba(56,189,248,0.15)',color:'#38bdf8',border:'rgba(56,189,248,0.3)'},'Hot':{bg:'rgba(239,68,68,0.15)',color:'#f87171',border:'rgba(239,68,68,0.3)'},'Demo Booked':{bg:'rgba(91,63,200,0.18)',color:'#7c5ce8',border:'rgba(91,63,200,0.35)'},'Nurturing':{bg:'rgba(236,72,153,0.15)',color:'#f472b6',border:'rgba(236,72,153,0.3)'},'Re-engage':{bg:'rgba(251,146,60,0.15)',color:'#fb923c',border:'rgba(251,146,60,0.3)'},'Converted':{bg:'rgba(16,185,129,0.15)',color:'#34d399',border:'rgba(16,185,129,0.3)'},'Lost':{bg:'rgba(239,68,68,0.12)',color:'#f87171',border:'rgba(239,68,68,0.2)'}};
+const INTENT_STYLE={'AI Visibility':{bg:'rgba(91,63,200,0.15)',color:'#7c5ce8'},'Review Growth':{bg:'rgba(59,130,246,0.15)',color:'#60a5fa'},'Listings':{bg:'rgba(16,185,129,0.15)',color:'#34d399'},'Competitor Dominance':{bg:'rgba(239,68,68,0.15)',color:'#f87171'},'Local SEO':{bg:'rgba(245,158,11,0.15)',color:'#fcd34d'}};
+const INTENTS=Object.keys(INTENT_STYLE);
+const INDUSTRIES=['Dental','Med Spa','Chiropractic','Wellness','Fitness','Dermatology','Healthcare','Automotive','Legal','Real Estate','Financial Services','Home Services','Other'];
+const BIRDEYE_PRODUCTS={'AI Visibility':{product:'Search AI + Listings AI',stat:'61% visibility boost'},'Review Growth':{product:'Reviews AI',stat:'128% avg review growth'},'Listings':{product:'Listings AI',stat:'3B impressions/yr'},'Competitor Dominance':{product:'Competitors AI',stat:'Real-time benchmarking'},'Local SEO':{product:'Listings AI + Search AI',stat:'927% search views'}};
+const getBM=(i)=>BIRDEYE_PRODUCTS[i]||BIRDEYE_PRODUCTS['Review Growth'];
 
-// ═══════════════════════════════════════════════
-// MOCK DATA (14 leads)
-// ═══════════════════════════════════════════════
-const MOCK_LEADS = [
-  {id:1,business:'SmileCraft Dental',contact:'Sarah Johnson',email:'sarah@smilecraftdental.com',phone:'(512) 555-0198',city:'Austin, TX',industry:'Dental',intent:'AI Visibility',aiScore:92,reviews:128,rating:4.1,aiVisibility:18,compGap:'High',stage:'Hot',nextAction:'Send Comp. Proof',lastTouch:'2h ago',cadenceDay:3,cadenceTotal:7},
-  {id:2,business:'Glow Med Spa',contact:'Jennifer Park',email:'hello@glowmedspa.com',phone:'(512) 555-0421',city:'Austin, TX',industry:'Med Spa',intent:'Review Growth',aiScore:88,reviews:83,rating:4.3,aiVisibility:22,compGap:'High',stage:'Demo Booked',nextAction:'Prep Demo',lastTouch:'1d ago',cadenceDay:2,cadenceTotal:7},
-  {id:3,business:'Prime Wellness',contact:'David Torres',email:'hello@primewellness.com',phone:'(512) 555-0873',city:'Austin, TX',industry:'Wellness',intent:'AI Visibility',aiScore:76,reviews:45,rating:4.0,aiVisibility:11,compGap:'Medium',stage:'Follow Up',nextAction:'Send Case Study',lastTouch:'2d ago',cadenceDay:1,cadenceTotal:7},
-  {id:4,business:'Austin Smile Studio',contact:'Maria Lopez',email:'hello@austinsmile.com',phone:'(512) 555-0312',city:'Austin, TX',industry:'Dental',intent:'Review Growth',aiScore:72,reviews:67,rating:4.2,aiVisibility:27,compGap:'Medium',stage:'Nurturing',nextAction:'Send AI Audit',lastTouch:'3d ago',cadenceDay:5,cadenceTotal:7},
-  {id:5,business:'Elite Chiropractic',contact:'Dr. James Kim',email:'drjames@elitechiro.com',phone:'(512) 555-0654',city:'Austin, TX',industry:'Chiropractic',intent:'Listings',aiScore:65,reviews:32,rating:3.9,aiVisibility:9,compGap:'Low',stage:'Follow Up',nextAction:'Day 3 Follow Up',lastTouch:'3d ago',cadenceDay:3,cadenceTotal:7},
-  {id:6,business:'Radiant Skin Clinic',contact:'Ashley Chen',email:'ashley@radiantskin.com',phone:'(512) 555-0199',city:'Austin, TX',industry:'Dermatology',intent:'AI Visibility',aiScore:81,reviews:94,rating:4.5,aiVisibility:14,compGap:'High',stage:'Contacted',nextAction:'Book Demo',lastTouch:'4h ago',cadenceDay:2,cadenceTotal:7},
-  {id:7,business:'Westlake Family Dental',contact:'Dr. Rachel Wu',email:'info@westlakefamilydental.com',phone:'(512) 555-0777',city:'Austin, TX',industry:'Dental',intent:'Review Growth',aiScore:69,reviews:51,rating:4.1,aiVisibility:20,compGap:'Medium',stage:'Re-engage',nextAction:'Re-engage',lastTouch:'8d ago',cadenceDay:0,cadenceTotal:7},
-  {id:8,business:'Body Balance Studio',contact:'Priya Sharma',email:'priya@bodybalancestudio.com',phone:'(512) 555-0845',city:'Austin, TX',industry:'Fitness',intent:'Listings',aiScore:58,reviews:27,rating:3.8,aiVisibility:6,compGap:'Low',stage:'New',nextAction:'Initial Outreach',lastTouch:'Never',cadenceDay:0,cadenceTotal:7},
-  {id:9,business:'Peak Performance PT',contact:'Mike Reynolds',email:'mike@peakpt.com',phone:'(512) 555-0933',city:'Austin, TX',industry:'Wellness',intent:'AI Visibility',aiScore:84,reviews:112,rating:4.4,aiVisibility:16,compGap:'High',stage:'Hot',nextAction:'Send ROI Calculator',lastTouch:'5h ago',cadenceDay:4,cadenceTotal:7},
-  {id:10,business:'Bright Smiles Ortho',contact:'Dr. Lisa Tran',email:'lisa@brightsmiles.com',phone:'(512) 555-0211',city:'Austin, TX',industry:'Dental',intent:'Review Growth',aiScore:77,reviews:89,rating:4.3,aiVisibility:24,compGap:'Medium',stage:'Contacted',nextAction:'Follow Up Email',lastTouch:'1d ago',cadenceDay:1,cadenceTotal:7},
-  {id:11,business:'Zen Yoga Collective',contact:'Aisha Patel',email:'aisha@zenyoga.com',phone:'(512) 555-0567',city:'Austin, TX',industry:'Fitness',intent:'Listings',aiScore:61,reviews:19,rating:4.6,aiVisibility:5,compGap:'Low',stage:'New',nextAction:'Initial Outreach',lastTouch:'Never',cadenceDay:0,cadenceTotal:7},
-  {id:12,business:'Capitol Dermatology',contact:'Dr. Mark Stevens',email:'mark@capitolderm.com',phone:'(512) 555-0444',city:'Austin, TX',industry:'Dermatology',intent:'Competitor Dominance',aiScore:86,reviews:156,rating:4.2,aiVisibility:31,compGap:'High',stage:'Demo Booked',nextAction:'Confirm Demo Time',lastTouch:'6h ago',cadenceDay:5,cadenceTotal:7},
-  {id:13,business:'Lakeway Chiropractic',contact:'Dr. Tom Bradley',email:'tom@lakewaychiro.com',phone:'(512) 555-0888',city:'Austin, TX',industry:'Chiropractic',intent:'Local SEO',aiScore:70,reviews:41,rating:4.0,aiVisibility:12,compGap:'Medium',stage:'Follow Up',nextAction:'Send Local SEO Report',lastTouch:'4d ago',cadenceDay:2,cadenceTotal:7},
-  {id:14,business:'Fresh Face Aesthetics',contact:'Olivia Grant',email:'olivia@freshface.com',phone:'(512) 555-0122',city:'Austin, TX',industry:'Med Spa',intent:'AI Visibility',aiScore:79,reviews:73,rating:4.4,aiVisibility:13,compGap:'High',stage:'Hot',nextAction:'Prepare AI Audit',lastTouch:'3h ago',cadenceDay:3,cadenceTotal:7},
+// ═══ MOCK DATA ═══
+const mkLead=(d)=>({activities:[],memory:[],touchLog:[],followUps:[],intelligence:{summary:'',painPoints:[],objections:[],competitors:[],buyingSignals:[],decisionMakers:d.contact?[d.contact]:[],leadTemperature:'Cold',meetingProbability:20,nextBestAction:d.nextAction||'',lastConversation:'',lastUpdated:new Date().toISOString()},...d});
+const MOCK_LEADS=[
+mkLead({id:1,business:'SmileCraft Dental',contact:'Sarah Johnson',email:'sarah@smilecraftdental.com',phone:'(512) 555-0198',website:'smilecraftdental.com',city:'Austin, TX',industry:'Dental',intent:'AI Visibility',aiScore:92,reviews:128,rating:4.1,aiVisibility:18,compGap:'High',stage:'Hot',nextAction:'Send Comp. Proof',lastTouch:'2h ago',cadenceDay:3,cadenceTotal:7,competitor:'Glow Dental',aeNotes:'Decision maker confirmed. Budget approved Q3.',intelligence:{summary:'SmileCraft Dental — high-intent practice. Pain: low AI visibility vs Glow Dental.',painPoints:['Low AI search visibility','Competitor has 3x more reviews'],objections:[],competitors:['Glow Dental'],buyingSignals:['Budget approved Q3'],decisionMakers:['Sarah Johnson'],leadTemperature:'Hot',meetingProbability:72,nextBestAction:'Send competitor proof',lastConversation:'Budget approved Q3.',lastUpdated:new Date().toISOString()},activities:[{activityId:101,timestamp:new Date(Date.now()-7200000).toISOString(),type:'Email',summary:'Email sent: Competitor proof',details:{content:'Hi Sarah, noticed SmileCraft has 128 reviews while Glow Dental has 412…'},outcome:'Sent',source:'manual'}],memory:[{id:1,text:'AI visibility gap concern on call 5/20',tag:'Pain Point',date:'5/20'},{id:2,text:'Owner Dr. Sarah Johnson — tech-forward',tag:'Decision Maker',date:'5/18'}]}),
+mkLead({id:2,business:'Glow Med Spa',contact:'Jennifer Park',email:'hello@glowmedspa.com',phone:'(512) 555-0421',city:'Austin, TX',industry:'Med Spa',intent:'Review Growth',aiScore:88,reviews:83,rating:4.3,aiVisibility:22,compGap:'High',stage:'Demo Booked',nextAction:'Prep Demo',lastTouch:'1d ago',cadenceDay:2,cadenceTotal:7,aeNotes:''}),
+mkLead({id:3,business:'Prime Wellness',contact:'David Torres',email:'hello@primewellness.com',phone:'(512) 555-0873',city:'Austin, TX',industry:'Wellness',intent:'AI Visibility',aiScore:76,reviews:45,rating:4.0,aiVisibility:11,compGap:'Medium',stage:'Follow Up',nextAction:'Send Case Study',lastTouch:'2d ago',cadenceDay:1,cadenceTotal:7,aeNotes:''}),
+mkLead({id:4,business:'Austin Smile Studio',contact:'Maria Lopez',email:'hello@austinsmile.com',phone:'(512) 555-0312',city:'Austin, TX',industry:'Dental',intent:'Review Growth',aiScore:72,reviews:67,rating:4.2,aiVisibility:27,compGap:'Medium',stage:'Nurturing',nextAction:'Send AI Audit',lastTouch:'3d ago',cadenceDay:5,cadenceTotal:7,aeNotes:''}),
+mkLead({id:5,business:'Elite Chiropractic',contact:'Dr. James Kim',email:'drjames@elitechiro.com',phone:'(512) 555-0654',city:'Austin, TX',industry:'Chiropractic',intent:'Listings',aiScore:65,reviews:32,rating:3.9,aiVisibility:9,compGap:'Low',stage:'Follow Up',nextAction:'Day 3 Follow Up',lastTouch:'3d ago',cadenceDay:3,cadenceTotal:7,aeNotes:''}),
+mkLead({id:6,business:'Radiant Skin Clinic',contact:'Ashley Chen',email:'ashley@radiantskin.com',phone:'(512) 555-0199',city:'Austin, TX',industry:'Dermatology',intent:'AI Visibility',aiScore:81,reviews:94,rating:4.5,aiVisibility:14,compGap:'High',stage:'Contacted',nextAction:'Book Demo',lastTouch:'4h ago',cadenceDay:2,cadenceTotal:7,aeNotes:''}),
+mkLead({id:7,business:'Westlake Family Dental',contact:'Dr. Rachel Wu',email:'info@westlakedental.com',phone:'(512) 555-0777',city:'Austin, TX',industry:'Dental',intent:'Review Growth',aiScore:69,reviews:51,rating:4.1,aiVisibility:20,compGap:'Medium',stage:'Re-engage',nextAction:'Re-engage',lastTouch:'8d ago',cadenceDay:0,cadenceTotal:7,aeNotes:''}),
+mkLead({id:8,business:'Body Balance Studio',contact:'Priya Sharma',email:'priya@bodybalance.com',phone:'(512) 555-0845',city:'Austin, TX',industry:'Fitness',intent:'Listings',aiScore:58,reviews:27,rating:3.8,aiVisibility:6,compGap:'Low',stage:'New',nextAction:'Initial Outreach',lastTouch:'Never',cadenceDay:0,cadenceTotal:7,aeNotes:''}),
 ];
+const MOCK_CADENCES=[{id:1,name:'AI Visibility Dominator',description:'For leads with AI visibility gaps',steps:[{day:1,channel:'Email',angle:'AI Visibility Audit'},{day:3,channel:'SMS',angle:'Competitor proof'},{day:5,channel:'Email',angle:'Case study'},{day:7,channel:'LinkedIn',angle:'Soft CTA'}]},{id:2,name:'Review Growth Sprint',description:'For leads focused on reviews',steps:[{day:1,channel:'Email',angle:'ROI of reviews'},{day:2,channel:'SMS',angle:'128% stat'},{day:4,channel:'Email',angle:'Automation demo'},{day:6,channel:'Voicemail',angle:'Personal VM'},{day:8,channel:'Email',angle:'Demo offer'}]}];
+const DEFAULT_SETTINGS={aiProvider:'claude',claudeKey:'',geminiKey:'',sheetsId:'',sheetsToken:'',name:'Paul',title:'Senior SDR',email:'paul@birdeye.com'};
 
-// ═══════════════════════════════════════════════
-// CONTEXT & STATE
-// ═══════════════════════════════════════════════
-const AppCtx = createContext(null);
-const useApp = () => useContext(AppCtx);
-
-function AppProvider({ children }) {
-  const [theme, setTheme] = useState('dark');
-  const [leads, setLeads] = useState(MOCK_LEADS);
-  const [selected, setSelected] = useState(new Set());
-  const [activeLead, setActiveLead] = useState(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [view, setViewRaw] = useState('workqueue');
-
-  useEffect(() => { document.documentElement.className = theme; }, [theme]);
-  const toggleTheme = useCallback(() => setTheme(t => t === 'dark' ? 'light' : 'dark'), []);
-  const toggleSidebar = useCallback(() => setSidebarOpen(v => !v), []);
-  const setView = useCallback((v) => { setActiveLead(null); setViewRaw(v); }, []);
-  const openLead = useCallback((lead) => setActiveLead(lead), []);
-  const closeLead = useCallback(() => setActiveLead(null), []);
-  const toggleSelect = useCallback((id) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; }), []);
-  const selectAll = useCallback((ids) => setSelected(new Set(ids)), []);
-  const clearSelect = useCallback(() => setSelected(new Set()), []);
-  const bulkUpdateStage = useCallback((stage) => {
-    setLeads(prev => prev.map(l => selected.has(l.id) ? { ...l, stage } : l));
-    setSelected(new Set());
-  }, [selected]);
-  const updateLead = useCallback((id, patch) => {
-    setLeads(prev => prev.map(l => l.id === id ? { ...l, ...patch } : l));
-    setActiveLead(prev => prev?.id === id ? { ...prev, ...patch } : prev);
-  }, []);
-
-  return (
-    <AppCtx.Provider value={{ theme, toggleTheme, sidebarOpen, toggleSidebar, view, setView, leads, selected, toggleSelect, selectAll, clearSelect, bulkUpdateStage, activeLead, openLead, closeLead, updateLead }}>
-      {children}
-    </AppCtx.Provider>
-  );
+// ═══ CONTEXT ═══
+const Ctx=createContext(null);
+const useApp=()=>useContext(Ctx);
+function useTheme(){const{theme}=useApp();const d=theme==='dark';return{dark:d,T1:d?'#e6edf3':'#111827',T2:d?'#8b949e':'#6b7280',T3:d?'#484f58':'#9ca3af',B1:d?'#30363d':'#e5e7eb',S1:d?'#161b22':'#ffffff',S2:d?'#0d1117':'#f8f9fa',S3:d?'#21262d':'#f3f4f5',BG:d?'#0d1117':'#f8f9fa'};}
+function AppProvider({children}){
+const[theme,setTheme]=useState(()=>localStorage.getItem('be_theme')||'dark');
+const[view,setViewRaw]=useState('workqueue');
+const[leads,setLeads]=useState(MOCK_LEADS);
+const[cadences,setCadences]=useState(MOCK_CADENCES);
+const[settings,setSettings]=useState({...DEFAULT_SETTINGS});
+const[activeLead,setActiveLead]=useState(null);
+const[selected,setSelected]=useState(new Set());
+const[copilotOpen,setCopilotOpen]=useState(false);
+const[copilotMode,setCopilotMode]=useState('email');
+const[copilotLead,setCopilotLead]=useState(null);
+const[sidebarOpen,setSidebarOpen]=useState(true);
+useEffect(()=>{document.documentElement.className=theme;localStorage.setItem('be_theme',theme);},[theme]);
+const toggleTheme=useCallback(()=>setTheme(t=>t==='dark'?'light':'dark'),[]);
+const toggleSidebar=useCallback(()=>setSidebarOpen(v=>!v),[]);
+const setView=useCallback((v)=>{setActiveLead(null);setViewRaw(v);},[]);
+const updateLead=useCallback((id,patch)=>{setLeads(p=>p.map(l=>l.id===id?{...l,...patch}:l));setActiveLead(p=>p?.id===id?{...p,...patch}:p);},[]);
+const addLead=useCallback((data)=>{const nl=mkLead({...data,id:Date.now()});setLeads(p=>[nl,...p]);return nl;},[]);
+const addActivity=useCallback((leadId,type,summary,details={})=>{const act={activityId:Date.now()+Math.random(),timestamp:new Date().toISOString(),type,summary,details,outcome:details.outcome||null,source:details.source||'manual'};setLeads(p=>p.map(l=>l.id===leadId?{...l,activities:[act,...(l.activities||[])]}:l));setActiveLead(p=>p?.id===leadId?{...p,activities:[act,...(p.activities||[])]}:p);},[]);
+const addMemory=useCallback((leadId,entry)=>{const m={...entry,id:Date.now()+Math.random()};setLeads(p=>p.map(l=>l.id===leadId?{...l,memory:[m,...(l.memory||[])]}:l));setActiveLead(p=>p?.id===leadId?{...p,memory:[m,...(p.memory||[])]}:p);},[]);
+const removeMemory=useCallback((leadId,memId)=>{setLeads(p=>p.map(l=>l.id===leadId?{...l,memory:(l.memory||[]).filter(m=>m.id!==memId)}:l));setActiveLead(p=>p?.id===leadId?{...p,memory:(p.memory||[]).filter(m=>m.id!==memId)}:p);},[]);
+const openLead=useCallback((lead)=>setActiveLead(lead),[]);
+const closeLead=useCallback(()=>setActiveLead(null),[]);
+const toggleSelect=useCallback((id)=>setSelected(p=>{const n=new Set(p);n.has(id)?n.delete(id):n.add(id);return n;}),[]);
+const selectAll=useCallback((ids)=>setSelected(new Set(ids)),[]);
+const clearSelect=useCallback(()=>setSelected(new Set()),[]);
+const bulkUpdateStage=useCallback((stage)=>{setLeads(p=>p.map(l=>selected.has(l.id)?{...l,stage}:l));setSelected(new Set());},[selected]);
+const openCopilot=useCallback((mode='email',lead=null)=>{setCopilotMode(mode);setCopilotLead(lead);setCopilotOpen(true);},[]);
+const closeCopilot=useCallback(()=>setCopilotOpen(false),[]);
+const updateSettings=useCallback((patch)=>setSettings(p=>({...p,...patch})),[]);
+const saveCadence=useCallback((c)=>setCadences(p=>c.id?p.map(x=>x.id===c.id?c:x):[...p,{...c,id:Date.now()}]),[]);
+const deleteCadence=useCallback((id)=>setCadences(p=>p.filter(c=>c.id!==id)),[]);
+return(<Ctx.Provider value={{theme,toggleTheme,sidebarOpen,toggleSidebar,view,setView,leads,addLead,updateLead,addActivity,addMemory,removeMemory,activeLead,openLead,closeLead,selected,toggleSelect,selectAll,clearSelect,bulkUpdateStage,copilotOpen,copilotMode,copilotLead,openCopilot,closeCopilot,cadences,saveCadence,deleteCadence,settings,updateSettings}}>{children}</Ctx.Provider>);
 }
 
-// ═══════════════════════════════════════════════
-// ICONS
-// ═══════════════════════════════════════════════
-const ICONS = {
-  menu:['M4 6h16','M4 12h16','M4 18h16'],x:['M18 6 6 18','m6 6 12 12'],plus:['M5 12h14','M12 5v14'],
-  search:['m21 21-4.34-4.34','M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z'],
-  checkCircle:['M22 11.08V12a10 10 0 1 1-5.93-9.14','M9 11l3 3L22 4'],
-  users:['M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2','M9 7a4 4 0 1 0 8 0 4 4 0 0 0-8 0','M23 21v-2a4 4 0 0 0-3-3.87','M16 3.13a4 4 0 0 1 0 7.75'],
-  flame:['M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z'],
-  refresh:['M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8','M21 3v5h-5','M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16','M8 16H3v5'],
-  calendar:['M8 2v4','M16 2v4','M3 10h18','M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z'],
-  chart:['M5 21v-6','M12 21V3','M19 21V9'],
-  brain:['M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.536-4.026A3 3 0 1 1 9.5 2','M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.536-4.026A3 3 0 1 0 14.5 2'],
-  sparkles:['m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z','M5 3v4','M3 5h4','M19 17v4','M17 19h4'],
-  chevRight:['m9 18 6-6-6-6'],chevDown:['m6 9 6 6 6-6'],
-  clock:['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z','M12 6v6l4 2'],
-  radar:['M12 12m-2 0a2 2 0 1 0 4 0 2 2 0 1 0-4 0','M12 2a10 10 0 0 1 0 20','M12 8a4 4 0 0 1 0 8'],
-  zap:['M13 2 3 14h9l-1 8 10-12h-9l1-8z'],
-  settings:['M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z','M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z','M12 2v2','M12 20v2','m4.93 4.93 1.41 1.41','m17.66 17.66 1.41 1.41','M2 12h2','M20 12h2','m6.34 17.66-1.41 1.41','m19.07 4.93-1.41 1.41'],
-  panelLeft:['M9 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h4','M9 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H9V3z'],
-  sun:['M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z','M12 2v2','M12 20v2','m4.93 4.93 1.41 1.41','m17.66 17.66 1.41 1.41','M2 12h2','M20 12h2','m6.34 17.66-1.41 1.41','m19.07 4.93-1.41 1.41'],
-  moon:['M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'],
-  layout:['M3 3h7v9H3z','M14 3h7v5h-7z','M14 12h7v9h-7z','M3 16h7v5H3z'],
-  git:['M18 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6z','M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z','M13 6H6a3 3 0 0 0-3 3v9','M18 9v6'],
-  target:['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z','M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z','M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0-4z'],
-  arrowLeft:['m12 19-7-7 7-7','M19 12H5'],
-  mail:['M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z','m22 6-10 7L2 6'],
-  phone:['M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z'],
-  globe:['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z','M2 12h20','M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z'],
-  mapPin:['M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z','M12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'],
-  externalLink:['M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6','M15 3h6v6','M10 14 21 3'],
-  trending:['M22 7l-8.5 8.5-5-5L2 17','M22 7h-5v5'],
-};
+// ═══ ICONS ═══
+const ICONS={menu:['M4 6h16','M4 12h16','M4 18h16'],x:['M18 6 6 18','m6 6 12 12'],plus:['M5 12h14','M12 5v14'],search:['m21 21-4.34-4.34','M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16z'],checkCircle:['M22 11.08V12a10 10 0 1 1-5.93-9.14','M9 11l3 3L22 4'],users:['M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2','M9 7a4 4 0 1 0 8 0 4 4 0 0 0-8 0','M23 21v-2a4 4 0 0 0-3-3.87','M16 3.13a4 4 0 0 1 0 7.75'],flame:['M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z'],refresh:['M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8','M21 3v5h-5','M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16','M8 16H3v5'],calendar:['M8 2v4','M16 2v4','M3 10h18','M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6z'],chart:['M5 21v-6','M12 21V3','M19 21V9'],brain:['M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.536-4.026A3 3 0 1 1 9.5 2','M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.536-4.026A3 3 0 1 0 14.5 2'],sparkles:['m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z','M5 3v4','M3 5h4','M19 17v4','M17 19h4'],chevRight:['m9 18 6-6-6-6'],chevDown:['m6 9 6 6 6-6'],clock:['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z','M12 6v6l4 2'],radar:['M12 12m-2 0a2 2 0 1 0 4 0 2 2 0 1 0-4 0','M12 2a10 10 0 0 1 0 20','M12 8a4 4 0 0 1 0 8'],zap:['M13 2 3 14h9l-1 8 10-12h-9l1-8z'],settings:['M12 20a8 8 0 1 0 0-16 8 8 0 0 0 0 16z','M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z','M12 2v2','M12 20v2','m4.93 4.93 1.41 1.41','m17.66 17.66 1.41 1.41','M2 12h2','M20 12h2','m6.34 17.66-1.41 1.41','m19.07 4.93-1.41 1.41'],panelLeft:['M9 3H5a2 2 0 0 0-2 2v14c0 1.1.9 2 2 2h4','M9 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H9V3z'],sun:['M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z','M12 2v2','M12 20v2','m4.93 4.93 1.41 1.41','m17.66 17.66 1.41 1.41','M2 12h2','M20 12h2','m6.34 17.66-1.41 1.41','m19.07 4.93-1.41 1.41'],moon:['M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'],layout:['M3 3h7v9H3z','M14 3h7v5h-7z','M14 12h7v9h-7z','M3 16h7v5H3z'],git:['M18 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6z','M6 3a3 3 0 1 0 0 6 3 3 0 0 0 0-6z','M13 6H6a3 3 0 0 0-3 3v9','M18 9v6'],target:['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z','M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12z','M12 14a2 2 0 1 0 0-4 2 2 0 0 0 0 4z'],arrowLeft:['m12 19-7-7 7-7','M19 12H5'],mail:['M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z','m22 6-10 7L2 6'],phone:['M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z'],globe:['M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z','M2 12h20','M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z'],mapPin:['M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z','M12 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'],externalLink:['M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6','M15 3h6v6','M10 14 21 3'],trending:['M22 7l-8.5 8.5-5-5L2 17','M22 7h-5v5'],save:['M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z','M17 21v-8H7v8','M7 3v5h8'],trash:['M3 6h18','M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6','M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2'],send:['m22 2-7 20-4-9-9-4z','m22 2-11 11'],copy:['M8 17.929H6c-1.105 0-2-.912-2-2.036V5.036C4 3.91 4.895 3 6 3h8c1.105 0 2 .911 2 2.036v1.866','M11.143 17.929l5.714 0c1.105 0 2-.91 2-2.036v-10.857c0-1.124-.895-2.036-2-2.036l-5.714 0c-1.105 0-2 .912-2 2.036v10.857c0 1.124.895 2.036 2 2.036z'],eye:['M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z','M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'],eyeOff:['M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94','M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19','m1 1 22 22'],mic:['M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z','M19 10v2a7 7 0 0 1-14 0v-2','M12 19v4','M8 23h8'],linkedin:['M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z','M2 9h4v12H2z','M4 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z'],fileText:['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z','M14 2v6h6','M16 13H8','M16 17H8','M10 9H8'],palette:['M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10zm0 0v-4'],filter:['M22 3H2l8 9.46V19l4 2v-8.54z'],database:['M12 2a9 3 0 1 0 0 6 9 3 0 0 0 0-6z','M3 5v14a9 3 0 0 0 18 0V5'],check:['M20 6 9 17l-5-5']};
+function Ico({name,size=16,color='currentColor',style={}}){const paths=ICONS[name];if(!paths)return null;return(<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0,...style}}>{paths.map((d,i)=><path key={i} d={d}/>)}</svg>);}
 
-function Ico({ name, size = 16, className = '', style = {} }) {
-  const paths = ICONS[name];
-  if (!paths) return null;
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 ${className}`} style={style}>
-      {paths.map((d, i) => <path key={i} d={d}/>)}
-    </svg>
-  );
+// ═══ UI ATOMS ═══
+function StageBadge({stage}){const s=STAGE_STYLE[stage]||STAGE_STYLE['New'];return<span style={{display:'inline-flex',alignItems:'center',padding:'2px 8px',borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:'nowrap',background:s.bg,color:s.color,border:`1px solid ${s.border}`}}>{stage}</span>;}
+function IntentBadge({intent}){const s=INTENT_STYLE[intent]||INTENT_STYLE['AI Visibility'];return<span style={{display:'inline-flex',padding:'2px 8px',borderRadius:99,fontSize:10,fontWeight:500,background:s.bg,color:s.color}}>{intent}</span>;}
+function ScoreRing({score,size=36}){const color=score>=80?'#10b981':score>=65?'#f59e0b':'#ef4444';const r=size/2-4,circ=2*Math.PI*r,cx=size/2;return(<div style={{position:'relative',width:size,height:size,flexShrink:0}}><svg width={size} height={size} style={{position:'absolute',inset:0}}><circle cx={cx} cy={cx} r={r} fill="none" stroke="var(--b1)" strokeWidth="2.5"/><circle cx={cx} cy={cx} r={r} fill="none" stroke={color} strokeWidth="2.5" strokeDasharray={`${score/100*circ} ${circ}`} strokeLinecap="round" transform={`rotate(-90 ${cx} ${cx})`}/></svg><span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:size>40?13:10,fontWeight:700,color,fontFamily:'JetBrains Mono,monospace'}}>{score}</span></div>);}
+function Btn({children,onClick,variant='primary',size='md',disabled=false,style={}}){const base={cursor:disabled?'not-allowed':'pointer',border:'none',borderRadius:8,display:'inline-flex',alignItems:'center',gap:6,fontFamily:'inherit',fontWeight:600,transition:'background 0.15s',opacity:disabled?0.5:1};const pad={sm:'5px 10px',md:'7px 14px',lg:'10px 20px'}[size];const v={primary:{background:'var(--p)',color:'#fff',fontSize:12},ghost:{background:'transparent',color:'var(--t2)',border:'1px solid var(--b1)',fontSize:11},danger:{background:'var(--red)',color:'#fff',fontSize:12},subtle:{background:'var(--p-chip)',color:'var(--p-glow)',fontSize:11}}[variant];return<button onClick={disabled?undefined:onClick} disabled={disabled} style={{...base,...v,padding:pad,...style}}>{children}</button>;}
+function Spinner({size=14}){return<div style={{width:size,height:size,borderRadius:'50%',border:'2px solid rgba(91,63,200,0.3)',borderTopColor:'var(--p-glow)',animation:'.8s linear infinite spin'}}/>;}
+function Card({children,style={}}){const{S1,B1}=useTheme();return<div style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,padding:16,...style}}>{children}</div>;}
+function EmptyState({icon='📭',title,sub}){return(<div style={{textAlign:'center',padding:'48px 24px',color:'var(--t2)'}}><div style={{fontSize:32,marginBottom:12}}>{icon}</div><div style={{fontSize:14,fontWeight:600,color:'var(--t1)',marginBottom:6}}>{title}</div><div style={{fontSize:12}}>{sub}</div></div>);}
+
+// ═══ SIDEBAR ═══
+const NAV=[{id:'dashboard',label:'Dashboard',icon:'layout'},{id:'workqueue',label:'Work Queue',icon:'checkCircle'},{id:'leads',label:'My Leads',icon:'users'},{id:'hot',label:'Hot Leads',icon:'flame'},{id:'followups',label:'Follow Ups',icon:'refresh'},{id:'demobooked',label:'Demo Booked',icon:'calendar'},{id:'reengage',label:'Re-engage',icon:'radar'},{id:'pipeline',label:'Pipeline',icon:'git'},{id:'reports',label:'Reports',icon:'chart'},{id:'cadences',label:'Cadences',icon:'zap'},{id:'memory',label:'AI Memory',icon:'brain'},{id:'settings',label:'Settings',icon:'settings'}];
+function Sidebar(){
+const{view,setView,theme,toggleTheme,sidebarOpen,toggleSidebar,openCopilot}=useApp();
+const{dark,T1,T2,B1,S1}=useTheme();
+const w=sidebarOpen?240:56;
+return(
+<aside style={{position:'fixed',left:0,top:0,height:'100vh',width:w,zIndex:40,display:'flex',flexDirection:'column',background:S1,borderRight:`1px solid ${B1}`,transition:'width 0.2s ease',overflow:'hidden'}}>
+<div style={{display:'flex',alignItems:'center',justifyContent:sidebarOpen?'space-between':'center',padding:sidebarOpen?'14px':'14px 0',borderBottom:`1px solid ${B1}`,minHeight:56,flexShrink:0}}>
+{sidebarOpen&&<div style={{display:'flex',alignItems:'center',gap:10}}><div style={{width:32,height:32,borderRadius:8,background:'var(--p)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 3px 10px rgba(91,63,200,0.4)'}}><span style={{color:'#fff',fontSize:14,fontWeight:800}}>B</span></div><div><div style={{fontSize:13,fontWeight:700,color:T1,lineHeight:1}}>Birdeye</div><div style={{fontSize:9,fontWeight:600,color:T2,letterSpacing:'0.07em',textTransform:'uppercase',marginTop:2}}>SDR Workspace</div></div></div>}
+{!sidebarOpen&&<div style={{width:32,height:32,borderRadius:8,background:'var(--p)',display:'flex',alignItems:'center',justifyContent:'center'}}><span style={{color:'#fff',fontSize:14,fontWeight:800}}>B</span></div>}
+{sidebarOpen&&<button onClick={toggleSidebar} style={{padding:4,border:'none',background:'transparent',cursor:'pointer',color:T2,display:'flex'}}><Ico name="panelLeft" size={14}/></button>}
+</div>
+<div style={{padding:sidebarOpen?'8px 10px 4px':'8px 0 4px',flexShrink:0,display:'flex',justifyContent:sidebarOpen?'flex-start':'center'}}>
+{sidebarOpen?<div style={{display:'flex',alignItems:'center',gap:8,padding:'5px 8px',borderRadius:8,flex:1}}><div style={{position:'relative',flexShrink:0}}><div style={{width:28,height:28,borderRadius:'50%',background:'linear-gradient(135deg,var(--p),#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'#fff'}}>P</div><div style={{position:'absolute',bottom:-1,right:-1,width:8,height:8,borderRadius:'50%',background:'#10b981',border:`2px solid ${S1}`}}/></div><div><div style={{fontSize:12,fontWeight:600,color:T1}}>Paul</div><div style={{fontSize:10,color:T2}}>Senior SDR</div></div></div>:<div style={{position:'relative'}}><div style={{width:28,height:28,borderRadius:'50%',background:'linear-gradient(135deg,var(--p),#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'#fff'}}>P</div><div style={{position:'absolute',bottom:0,right:0,width:7,height:7,borderRadius:'50%',background:'#10b981',border:`2px solid ${S1}`}}/></div>}
+</div>
+<div style={{padding:sidebarOpen?'4px 10px 6px':'4px 8px 6px',flexShrink:0}}><button onClick={()=>setView('newlead')} style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'8px 0',borderRadius:8,border:'none',cursor:'pointer',background:'var(--p)',color:'#fff',fontSize:12,fontWeight:600,boxShadow:'0 3px 10px rgba(91,63,200,0.3)'}}><Ico name="plus" size={14}/>{sidebarOpen&&'New Lead'}</button></div>
+<nav style={{flex:1,overflowY:'auto',padding:'0 6px'}}>
+{NAV.map(item=>{const active=view===item.id;return(
+<button key={item.id} onClick={()=>setView(item.id)} title={sidebarOpen?undefined:item.label} style={{width:'100%',display:'flex',alignItems:'center',justifyContent:sidebarOpen?'flex-start':'center',gap:10,padding:sidebarOpen?'7px 10px':'8px 0',borderRadius:8,border:'none',cursor:'pointer',marginBottom:1,background:active?(dark?'rgba(91,63,200,0.18)':'rgba(91,63,200,0.1)'):'transparent',color:active?'var(--p-glow)':T2,fontSize:12,fontWeight:active?600:500,transition:'all 0.12s',textAlign:'left'}}>
+<Ico name={item.icon} size={15}/>{sidebarOpen&&<span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.label}</span>}
+</button>);})}
+</nav>
+<div style={{flexShrink:0,borderTop:`1px solid ${B1}`}}>
+<div style={{padding:sidebarOpen?'6px 10px 4px':'6px 8px 4px'}}><button onClick={()=>openCopilot('email',null)} className="ai-glow" style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'8px 0',borderRadius:8,border:'1px solid rgba(91,63,200,0.35)',cursor:'pointer',background:'rgba(91,63,200,0.1)',color:'var(--p-glow)',fontSize:12,fontWeight:600}}><Ico name="sparkles" size={13}/>{sidebarOpen&&'AI Copilot'}</button></div>
+<div style={{display:'flex',alignItems:'center',justifyContent:sidebarOpen?'space-between':'center',padding:sidebarOpen?'2px 14px 10px':'2px 0 10px'}}>
+{!sidebarOpen&&<button onClick={toggleSidebar} style={{padding:5,border:'none',background:'transparent',cursor:'pointer',color:T2,display:'flex'}}><Ico name="panelLeft" size={13}/></button>}
+{sidebarOpen&&<><button onClick={toggleTheme} style={{display:'flex',alignItems:'center',gap:4,fontSize:10,padding:'3px 8px',borderRadius:5,border:`1px solid ${B1}`,background:'transparent',color:T2,cursor:'pointer'}}><Ico name={dark?'sun':'moon'} size={11}/>{dark?'Light':'Dark'}</button><button onClick={toggleSidebar} style={{padding:3,border:'none',background:'transparent',cursor:'pointer',color:T2,display:'flex'}}><Ico name="panelLeft" size={13}/></button></>}
+</div>
+</div>
+</aside>);
 }
 
-// ═══════════════════════════════════════════════
-// SHARED COMPONENTS
-// ═══════════════════════════════════════════════
-function StageBadge({ stage }) {
-  const s = STAGE_STYLE[stage] || STAGE_STYLE['New'];
-  return <span style={{display:'inline-flex',alignItems:'center',padding:'2px 8px',borderRadius:99,fontSize:10,fontWeight:600,whiteSpace:'nowrap',background:s.bg,color:s.color,border:`1px solid ${s.border}`}}>{stage}</span>;
+// ═══ TOPBAR ═══
+const VIEW_LABELS={dashboard:'Dashboard',workqueue:'Work Queue',leads:'My Leads',hot:'Hot Leads',followups:'Follow Ups',demobooked:'Demo Booked',reengage:'Re-engage',pipeline:'Pipeline',reports:'Reports',cadences:'Cadences',memory:'AI Memory',settings:'Settings',newlead:'New Lead'};
+function TopBar({sw}){const{view,activeLead}=useApp();const{dark,T1,T2,B1}=useTheme();const title=activeLead?activeLead.business:(VIEW_LABELS[view]||'Dashboard');return(<header style={{position:'fixed',top:0,right:0,left:sw,height:56,zIndex:30,display:'flex',alignItems:'center',gap:16,padding:'0 20px',background:dark?'rgba(13,17,23,0.95)':'rgba(255,255,255,0.95)',borderBottom:`1px solid ${B1}`,backdropFilter:'blur(12px)',transition:'left 0.2s ease'}}><div style={{display:'flex',alignItems:'center',gap:6}}><span style={{fontSize:11,color:T2}}>SDR</span><Ico name="chevRight" size={12} color={dark?'#484f58':'#d1d5db'}/><span style={{fontSize:12,fontWeight:600,color:T1}}>{title}</span></div><div style={{flex:1}}/><div style={{width:30,height:30,borderRadius:'50%',background:'linear-gradient(135deg,var(--p),#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'#fff',cursor:'pointer'}}>P</div></header>);}
+
+// ═══ DASHBOARD ═══
+function Dashboard(){
+const{leads,openCopilot}=useApp();const{T1,T2,B1,S1,S3}=useTheme();
+const stats=useMemo(()=>{const hot=leads.filter(l=>l.stage==='Hot').length;const demo=leads.filter(l=>l.stage==='Demo Booked').length;const conv=leads.filter(l=>l.stage==='Converted').length;const avgScore=leads.length>0?Math.round(leads.reduce((s,l)=>s+(l.aiScore||0),0)/leads.length):0;const acts=leads.flatMap(l=>l.activities||[]);const emails=acts.filter(a=>a.type==='Email').length;const calls=acts.filter(a=>a.type==='Call').length;return{hot,demo,conv,avgScore,emails,calls};},[leads]);
+const cards=[{label:'Total Leads',value:leads.length,icon:'users',color:'#7c5ce8',bg:'rgba(91,63,200,0.12)'},{label:'Hot Leads',value:stats.hot,icon:'flame',color:'#ef4444',bg:'rgba(239,68,68,0.12)'},{label:'Demo Booked',value:stats.demo,icon:'calendar',color:'#f59e0b',bg:'rgba(245,158,11,0.12)'},{label:'Avg AI Score',value:stats.avgScore,icon:'target',color:'#7c5ce8',bg:'rgba(91,63,200,0.12)'},{label:'Emails Sent',value:stats.emails,icon:'mail',color:'#3b82f6',bg:'rgba(59,130,246,0.12)'},{label:'Calls Logged',value:stats.calls,icon:'phone',color:'#10b981',bg:'rgba(16,185,129,0.12)'},{label:'Converted',value:stats.conv,icon:'checkCircle',color:'#10b981',bg:'rgba(16,185,129,0.12)'},{label:'Follow Ups',value:leads.filter(l=>l.stage==='Follow Up').length,icon:'refresh',color:'#f59e0b',bg:'rgba(245,158,11,0.12)'}];
+const stageMap=STAGES.map(s=>({stage:s,count:leads.filter(l=>l.stage===s).length}));const maxC=Math.max(...stageMap.map(x=>x.count),1);
+return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:18}}>
+<div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}><div><h1 style={{fontSize:22,fontWeight:700,color:T1,margin:0}}>Dashboard</h1><p style={{fontSize:12,color:T2,marginTop:4}}>Live metrics · {leads.length} leads</p></div><Btn onClick={()=>openCopilot('situational',null)}><Ico name="sparkles" size={12}/>AI Copilot</Btn></div>
+<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>{cards.map(c=>(<div key={c.label} style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,padding:'14px 16px'}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{fontSize:10,fontWeight:600,color:T2,textTransform:'uppercase',letterSpacing:'0.06em'}}>{c.label}</span><div style={{width:24,height:24,borderRadius:6,background:c.bg,display:'flex',alignItems:'center',justifyContent:'center'}}><Ico name={c.icon} size={12} color={c.color}/></div></div><div style={{fontSize:26,fontWeight:700,color:T1,fontFamily:'JetBrains Mono,monospace',lineHeight:1}}>{c.value}</div></div>))}</div>
+<div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:20}}><div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:16}}>Pipeline Stage Distribution</div>{stageMap.map(({stage,count})=>{const ss=STAGE_STYLE[stage]||STAGE_STYLE['New'];const w=Math.round(count/maxC*100);return(<div key={stage} style={{marginBottom:8}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:12,color:T1}}>{stage}</span><span style={{fontSize:12,fontWeight:700,color:ss.color,fontFamily:'JetBrains Mono,monospace'}}>{count}</span></div><div style={{height:7,background:S3||'var(--s3)',borderRadius:99,overflow:'hidden'}}><div style={{height:7,width:`${w}%`,background:ss.color,borderRadius:99,transition:'width 0.6s ease'}}/></div></div>);})}</div>
+</div>);
 }
 
-function IntentBadge({ intent }) {
-  const s = INTENT_STYLE[intent] || INTENT_STYLE['AI Visibility'];
-  return <span style={{display:'inline-flex',padding:'2px 8px',borderRadius:99,fontSize:10,fontWeight:500,background:s.bg,color:s.color}}>{intent}</span>;
+// ═══ WORK QUEUE ═══
+function WorkQueue(){
+const{leads,openLead,selected,toggleSelect,selectAll,clearSelect,bulkUpdateStage}=useApp();const{dark,T1,T2,B1,S1}=useTheme();const[filter,setFilter]=useState('all');
+const filtered=useMemo(()=>{if(filter==='all')return leads;if(filter==='hot')return leads.filter(l=>l.stage==='Hot');if(filter==='followup')return leads.filter(l=>l.stage==='Follow Up');if(filter==='demo')return leads.filter(l=>l.stage==='Demo Booked');return leads;},[leads,filter]);
+const allIds=filtered.map(l=>l.id);const allSel=allIds.length>0&&allIds.every(id=>selected.has(id));
+const COLS='28px minmax(0,1.8fr) 110px 52px 72px 80px 80px minmax(0,1fr) 90px 100px 28px';
+const statCards=[{label:'Hot Leads',icon:'flame',color:'#ef4444',bg:'rgba(239,68,68,0.12)',count:leads.filter(l=>l.stage==='Hot').length},{label:'Follow Ups',icon:'refresh',color:'#f59e0b',bg:'rgba(245,158,11,0.12)',count:leads.filter(l=>l.stage==='Follow Up').length},{label:'Demo Booked',icon:'calendar',color:'#7c5ce8',bg:'rgba(91,63,200,0.15)',count:leads.filter(l=>l.stage==='Demo Booked').length},{label:'Re-engage',icon:'radar',color:'#38bdf8',bg:'rgba(56,189,248,0.12)',count:leads.filter(l=>l.stage==='Re-engage').length},{label:'New',icon:'users',color:'#3b82f6',bg:'rgba(59,130,246,0.12)',count:leads.filter(l=>l.stage==='New').length},{label:'Converted',icon:'checkCircle',color:'#10b981',bg:'rgba(16,185,129,0.12)',count:leads.filter(l=>l.stage==='Converted').length}];
+return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:16}}>
+<div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between'}}><div><h1 style={{fontSize:20,fontWeight:700,color:T1,margin:0}}>Work Queue</h1><p style={{fontSize:12,color:T2,marginTop:3}}>Your action center — sorted by AI score</p></div></div>
+<div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:10}}>{statCards.map(c=>(<div key={c.label} style={{background:S1,border:`1px solid ${B1}`,borderRadius:10,padding:'12px 14px',cursor:'pointer'}} onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(91,63,200,0.5)'} onMouseLeave={e=>e.currentTarget.style.borderColor=B1}><div style={{width:28,height:28,borderRadius:7,background:c.bg,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8}}><Ico name={c.icon} size={14} color={c.color}/></div><div style={{fontSize:24,fontWeight:700,color:T1,lineHeight:1,fontFamily:'JetBrains Mono,monospace'}}>{c.count}</div><div style={{fontSize:11,fontWeight:600,color:c.color,marginTop:5}}>{c.label}</div></div>))}</div>
+{selected.size>0&&<div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 14px',borderRadius:9,background:'var(--p-chip)',border:'1px solid rgba(91,63,200,0.3)'}}><span style={{fontSize:12,fontWeight:600,color:'var(--p-glow)'}}>{selected.size} selected</span>{['Hot','Follow Up','Demo Booked','Nurturing','Lost'].map(s=><button key={s} onClick={()=>bulkUpdateStage(s)} style={{fontSize:10,padding:'3px 10px',borderRadius:99,border:'none',background:'rgba(91,63,200,0.2)',color:'var(--p-glow)',cursor:'pointer',fontFamily:'inherit',fontWeight:500}}>→ {s}</button>)}<button onClick={clearSelect} style={{marginLeft:'auto',fontSize:11,color:T2,background:'none',border:'none',cursor:'pointer',fontFamily:'inherit'}}>Clear</button></div>}
+<div style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,overflow:'hidden'}}>
+<div style={{display:'flex',alignItems:'center',padding:'8px 12px',borderBottom:`1px solid ${B1}`,gap:2}}>{[{id:'all',label:'All',count:leads.length},{id:'hot',label:'Hot',count:leads.filter(l=>l.stage==='Hot').length},{id:'followup',label:'Follow Up',count:leads.filter(l=>l.stage==='Follow Up').length},{id:'demo',label:'Demo',count:leads.filter(l=>l.stage==='Demo Booked').length}].map(t=><button key={t.id} onClick={()=>setFilter(t.id)} style={{display:'flex',alignItems:'center',gap:4,padding:'5px 10px',borderRadius:7,border:'none',cursor:'pointer',background:filter===t.id?'var(--p)':'transparent',color:filter===t.id?'#fff':T2,fontSize:11,fontWeight:filter===t.id?600:400,fontFamily:'inherit',transition:'all 0.12s'}}>{t.label}<span style={{fontSize:10,opacity:.65}}>{t.count}</span></button>)}</div>
+<div style={{display:'grid',gridTemplateColumns:COLS,gap:8,padding:'7px 14px',borderBottom:`1px solid ${B1}`,background:dark?'rgba(0,0,0,0.2)':'rgba(0,0,0,0.03)',alignItems:'center'}}><input type="checkbox" checked={allSel} onChange={e=>e.target.checked?selectAll(allIds):clearSelect()} style={{width:13,height:13,accentColor:'var(--p)',cursor:'pointer'}}/>{['Business','Intent','Score','Reviews','AI Vis.','Gap','Next Action','Last Touch','Status',''].map(h=><div key={h} style={{fontSize:10,fontWeight:600,color:T2,textTransform:'uppercase',letterSpacing:'0.04em'}}>{h}</div>)}</div>
+{filtered.map(lead=>{const sel=selected.has(lead.id);const visC=(lead.aiVisibility||0)<15?'#ef4444':(lead.aiVisibility||0)<25?'#f59e0b':'#10b981';const gapC=lead.compGap==='High'?'#ef4444':lead.compGap==='Medium'?'#f59e0b':'#10b981';return(<div key={lead.id} onClick={()=>openLead(lead)} style={{display:'grid',gridTemplateColumns:COLS,gap:8,padding:'9px 14px',borderBottom:`1px solid ${dark?'rgba(48,54,61,0.4)':'#f3f4f5'}`,background:sel?'rgba(91,63,200,0.07)':'transparent',alignItems:'center',cursor:'pointer',transition:'background 0.1s'}} onMouseEnter={e=>{if(!sel)e.currentTarget.style.background=dark?'rgba(255,255,255,0.025)':'rgba(0,0,0,0.018)';}} onMouseLeave={e=>{if(!sel)e.currentTarget.style.background='transparent';}}><div onClick={e=>{e.stopPropagation();toggleSelect(lead.id);}}><input type="checkbox" checked={sel} onChange={()=>{}} style={{width:13,height:13,accentColor:'var(--p)',cursor:'pointer'}}/></div><div style={{minWidth:0}}><div style={{fontSize:12,fontWeight:600,color:T1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{lead.business}</div><div style={{fontSize:10,color:T2,fontFamily:'JetBrains Mono,monospace',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{lead.email}</div></div><IntentBadge intent={lead.intent}/><ScoreRing score={lead.aiScore} size={34}/><div><div style={{fontSize:12,fontWeight:700,color:T1}}>{lead.reviews}</div><div style={{fontSize:10,color:T2}}>★ {lead.rating}</div></div><div style={{fontSize:11,fontWeight:600,color:visC}}>↓ {lead.aiVisibility||0}%</div><div style={{fontSize:11,fontWeight:600,color:gapC}}>{lead.compGap}</div><div style={{fontSize:11,color:T1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{lead.nextAction}</div><div style={{fontSize:10,color:T2,display:'flex',alignItems:'center',gap:3}}><Ico name="clock" size={9}/> {lead.lastTouch}</div><StageBadge stage={lead.stage}/><Ico name="chevRight" size={13} color={T2}/></div>);})}
+<div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 14px',borderTop:`1px solid ${B1}`,background:dark?'rgba(0,0,0,0.15)':'rgba(0,0,0,0.02)'}}><span style={{fontSize:11,color:T2}}>{filtered.length} leads</span></div>
+</div></div>);
 }
 
-function ScoreRing({ score, size = 36 }) {
-  const color = score >= 80 ? '#10b981' : score >= 65 ? '#f59e0b' : '#ef4444';
-  const r = size / 2 - 4, circ = 2 * Math.PI * r, cx = size / 2;
-  return (
-    <div style={{position:'relative',width:size,height:size,flexShrink:0}}>
-      <svg width={size} height={size} style={{position:'absolute',inset:0}}>
-        <circle cx={cx} cy={cx} r={r} fill="none" stroke="var(--b1)" strokeWidth="2.5"/>
-        <circle cx={cx} cy={cx} r={r} fill="none" stroke={color} strokeWidth="2.5"
-          strokeDasharray={`${score/100*circ} ${circ}`} strokeLinecap="round"
-          transform={`rotate(-90 ${cx} ${cx})`}/>
-      </svg>
-      <span style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:size>40?13:10,fontWeight:700,color,fontFamily:'JetBrains Mono,monospace'}}>{score}</span>
-    </div>
-  );
+// ═══ MY LEADS ═══
+function MyLeads(){
+const{leads,openLead,selected,toggleSelect,selectAll,clearSelect,bulkUpdateStage}=useApp();const{dark,T1,T2,B1,S1}=useTheme();const[search,setSearch]=useState('');const[stageF,setStageF]=useState('All');const[intentF,setIntentF]=useState('All');
+const filtered=useMemo(()=>{let r=[...leads];if(search){const q=search.toLowerCase();r=r.filter(l=>l.business?.toLowerCase().includes(q)||l.email?.toLowerCase().includes(q));}if(stageF!=='All')r=r.filter(l=>l.stage===stageF);if(intentF!=='All')r=r.filter(l=>l.intent===intentF);return r.sort((a,b)=>b.aiScore-a.aiScore);},[leads,search,stageF,intentF]);
+const allIds=filtered.map(l=>l.id);const allSel=allIds.length>0&&allIds.every(id=>selected.has(id));const COL='28px minmax(0,1.6fr) 100px 52px 90px 72px 80px 90px 30px';
+return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:14}}>
+<div><h1 style={{fontSize:20,fontWeight:700,color:T1,margin:0}}>My Leads</h1><p style={{fontSize:12,color:T2,marginTop:3}}>{filtered.length} leads in your pipeline</p></div>
+<div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+<div style={{flex:1,minWidth:200,maxWidth:300,display:'flex',alignItems:'center',gap:7,padding:'7px 10px',borderRadius:8,background:S1,border:`1px solid ${B1}`}}><Ico name="search" size={13} color={T2}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search leads…" style={{flex:1,background:'transparent',border:'none',outline:'none',fontSize:12,color:T1,fontFamily:'inherit'}}/>{search&&<button onClick={()=>setSearch('')} style={{border:'none',background:'transparent',cursor:'pointer',color:T2,display:'flex'}}><Ico name="x" size={12}/></button>}</div>
+<select value={stageF} onChange={e=>setStageF(e.target.value)} style={{padding:'7px 10px',borderRadius:8,border:`1px solid ${B1}`,background:'var(--s2)',color:T1,fontSize:11,fontFamily:'inherit',outline:'none',cursor:'pointer'}}>{['All',...STAGES].map(s=><option key={s}>{s}</option>)}</select>
+<select value={intentF} onChange={e=>setIntentF(e.target.value)} style={{padding:'7px 10px',borderRadius:8,border:`1px solid ${B1}`,background:'var(--s2)',color:T1,fontSize:11,fontFamily:'inherit',outline:'none',cursor:'pointer'}}>{['All',...INTENTS].map(s=><option key={s}>{s}</option>)}</select>
+</div>
+{selected.size>0&&<div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 14px',borderRadius:9,background:'var(--p-chip)',border:'1px solid rgba(91,63,200,0.3)'}}><span style={{fontSize:12,fontWeight:600,color:'var(--p-glow)'}}>{selected.size} selected</span>{STAGES.slice(0,5).map(s=><button key={s} onClick={()=>bulkUpdateStage(s)} style={{fontSize:10,padding:'3px 10px',borderRadius:99,border:'none',background:'rgba(91,63,200,0.2)',color:'var(--p-glow)',cursor:'pointer',fontFamily:'inherit',fontWeight:500}}>→ {s}</button>)}<button onClick={clearSelect} style={{marginLeft:'auto',fontSize:11,color:T2,background:'none',border:'none',cursor:'pointer',fontFamily:'inherit'}}>Clear</button></div>}
+<div style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,overflow:'hidden'}}>
+<div style={{display:'grid',gridTemplateColumns:COL,gap:8,padding:'8px 16px',borderBottom:`1px solid ${B1}`,background:dark?'rgba(0,0,0,0.2)':'rgba(0,0,0,0.03)',alignItems:'center'}}><input type="checkbox" checked={allSel} onChange={e=>e.target.checked?selectAll(allIds):clearSelect()} style={{width:13,height:13,accentColor:'var(--p)',cursor:'pointer'}}/>{['Business','Intent','Score','Stage','Reviews','AI Vis.','Last Touch',''].map(h=><div key={h} style={{fontSize:10,fontWeight:600,color:T2,textTransform:'uppercase',letterSpacing:'0.04em'}}>{h}</div>)}</div>
+{filtered.length===0?<EmptyState icon="🔍" title="No leads match" sub="Adjust filters"/>:filtered.map(lead=>{const sel=selected.has(lead.id);const visC=(lead.aiVisibility||0)<15?'#ef4444':(lead.aiVisibility||0)<25?'#f59e0b':'#10b981';return(<div key={lead.id} onClick={()=>openLead(lead)} style={{display:'grid',gridTemplateColumns:COL,gap:8,padding:'9px 16px',borderBottom:`1px solid ${dark?'rgba(48,54,61,0.4)':'#f3f4f5'}`,background:sel?'rgba(91,63,200,0.07)':'transparent',alignItems:'center',cursor:'pointer',transition:'background 0.1s'}} onMouseEnter={e=>{if(!sel)e.currentTarget.style.background=dark?'rgba(255,255,255,0.025)':'rgba(0,0,0,0.015)';}} onMouseLeave={e=>{if(!sel)e.currentTarget.style.background='transparent';}}><div onClick={e=>{e.stopPropagation();toggleSelect(lead.id);}}><input type="checkbox" checked={sel} onChange={()=>{}} style={{width:13,height:13,accentColor:'var(--p)',cursor:'pointer'}}/></div><div style={{minWidth:0}}><div style={{fontSize:12,fontWeight:600,color:T1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{lead.business}</div><div style={{fontSize:10,color:T2,fontFamily:'JetBrains Mono,monospace',marginTop:1}}>{lead.email}</div></div><IntentBadge intent={lead.intent}/><ScoreRing score={lead.aiScore} size={32}/><StageBadge stage={lead.stage}/><div style={{fontSize:12,fontWeight:700,color:T1}}>{lead.reviews}</div><div style={{fontSize:11,fontWeight:600,color:visC}}>{lead.aiVisibility||0}%</div><div style={{fontSize:10,color:T2}}>{lead.lastTouch}</div><Ico name="chevRight" size={13} color={T2}/></div>);})}
+<div style={{display:'flex',justifyContent:'space-between',padding:'8px 16px',borderTop:`1px solid ${B1}`,background:dark?'rgba(0,0,0,0.15)':'rgba(0,0,0,0.02)'}}><span style={{fontSize:11,color:T2}}>{filtered.length} of {leads.length} leads</span></div>
+</div></div>);
 }
 
-// ═══════════════════════════════════════════════
-// SIDEBAR
-// ═══════════════════════════════════════════════
-const NAV = [
-  {id:'dashboard',label:'Dashboard',icon:'layout'},
-  {id:'workqueue',label:'Work Queue',icon:'checkCircle',badge:14},
-  {id:'leads',label:'My Leads',icon:'users'},
-  {id:'hot',label:'Hot Leads',icon:'flame',badge:3,badgeRed:true},
-  {id:'followups',label:'Follow Ups',icon:'refresh',badge:5,badgeAmber:true},
-  {id:'demobooked',label:'Demo Booked',icon:'calendar'},
-  {id:'reengage',label:'Re-engage',icon:'radar'},
-  {id:'pipeline',label:'Pipeline',icon:'git'},
-  {id:'reports',label:'Reports',icon:'chart'},
-  {id:'cadences',label:'Cadences',icon:'zap'},
-  {id:'memory',label:'AI Memory',icon:'brain'},
-  {id:'settings',label:'Settings',icon:'settings'},
-];
+// ═══ FILTERED VIEWS ═══
+function FilteredView({stage,title,emoji,sub}){const{leads,openLead,openCopilot}=useApp();const{T1,T2,B1,S1}=useTheme();const items=leads.filter(l=>l.stage===stage);return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:14}}><div><h1 style={{fontSize:20,fontWeight:700,color:T1,margin:0}}>{emoji} {title}</h1><p style={{fontSize:12,color:T2,marginTop:3}}>{sub} · {items.length} leads</p></div>{items.length===0?<EmptyState icon={emoji} title={`No ${title}`} sub={`Leads with stage "${stage}" appear here.`}/>:<div style={{display:'flex',flexDirection:'column',gap:8}}>{items.map(lead=>(<div key={lead.id} onClick={()=>openLead(lead)} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',background:S1,border:`1px solid ${B1}`,borderRadius:10,cursor:'pointer',transition:'border-color 0.15s'}} onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(91,63,200,0.4)'} onMouseLeave={e=>e.currentTarget.style.borderColor=B1}><div style={{width:38,height:38,borderRadius:10,background:'linear-gradient(135deg,var(--p),#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700,color:'#fff',flexShrink:0}}>{lead.business.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div><div style={{flex:1,minWidth:0}}><div style={{fontSize:13,fontWeight:600,color:T1}}>{lead.business}</div><div style={{display:'flex',gap:10,marginTop:2}}>{lead.contact&&<span style={{fontSize:11,color:T2}}>{lead.contact}</span>}{lead.email&&<span style={{fontSize:11,color:T2,fontFamily:'JetBrains Mono,monospace'}}>{lead.email}</span>}</div></div><div style={{display:'flex',alignItems:'center',gap:10,flexShrink:0}}><IntentBadge intent={lead.intent}/><ScoreRing score={lead.aiScore} size={32}/><span style={{fontSize:10,color:T2,display:'flex',alignItems:'center',gap:3}}><Ico name="clock" size={9}/>{lead.lastTouch}</span><button onClick={e=>{e.stopPropagation();openCopilot('email',lead);}} style={{display:'flex',alignItems:'center',gap:4,padding:'4px 10px',borderRadius:7,border:'1px solid rgba(91,63,200,0.3)',background:'rgba(91,63,200,0.08)',cursor:'pointer',color:'var(--p-glow)',fontSize:10,fontWeight:600,fontFamily:'inherit'}}><Ico name="sparkles" size={11}/>AI</button></div></div>))}</div>}</div>);}
+const HotLeads=()=><FilteredView stage="Hot" title="Hot Leads" emoji="🔥" sub="High priority — act today"/>;
+const FollowUps=()=><FilteredView stage="Follow Up" title="Follow Ups" emoji="🔄" sub="Due for follow up"/>;
+const DemoBooked=()=><FilteredView stage="Demo Booked" title="Demo Booked" emoji="📅" sub="Prep your pitch"/>;
+const ReEngage=()=><FilteredView stage="Re-engage" title="Re-engage" emoji="📡" sub="Cold leads — new angle needed"/>;
 
-function Sidebar() {
-  const { view, setView, theme, toggleTheme, sidebarOpen, toggleSidebar } = useApp();
-  const dark = theme === 'dark';
-  const w = sidebarOpen ? 240 : 56;
-  return (
-    <aside style={{position:'fixed',left:0,top:0,height:'100vh',width:w,zIndex:40,display:'flex',flexDirection:'column',background:'var(--s1)',borderRight:'1px solid var(--b1)',transition:'width 0.2s ease',overflow:'hidden'}}>
-      {/* Logo */}
-      <div style={{display:'flex',alignItems:'center',justifyContent:sidebarOpen?'space-between':'center',padding:sidebarOpen?'14px':'14px 0',borderBottom:'1px solid var(--b1)',minHeight:56,flexShrink:0}}>
-        {sidebarOpen && (
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <div style={{width:32,height:32,borderRadius:8,background:'var(--p)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 3px 10px rgba(91,63,200,0.4)'}}>
-              <span style={{color:'#fff',fontSize:14,fontWeight:800}}>B</span>
-            </div>
-            <div>
-              <div style={{fontSize:13,fontWeight:700,color:'var(--t1)',lineHeight:1}}>Birdeye</div>
-              <div style={{fontSize:9,fontWeight:600,color:'var(--t2)',letterSpacing:'0.07em',textTransform:'uppercase',marginTop:2}}>SDR Workspace</div>
-            </div>
-          </div>
-        )}
-        {!sidebarOpen && <div style={{width:32,height:32,borderRadius:8,background:'var(--p)',display:'flex',alignItems:'center',justifyContent:'center'}}><span style={{color:'#fff',fontSize:14,fontWeight:800}}>B</span></div>}
-        {sidebarOpen && <button onClick={toggleSidebar} style={{padding:4,border:'none',background:'transparent',cursor:'pointer',color:'var(--t2)',display:'flex',borderRadius:5}}><Ico name="panelLeft" size={14}/></button>}
-      </div>
-      {/* User */}
-      <div style={{padding:sidebarOpen?'8px 10px 4px':'8px 0 4px',flexShrink:0,display:'flex',justifyContent:sidebarOpen?'flex-start':'center'}}>
-        {sidebarOpen ? (
-          <div style={{display:'flex',alignItems:'center',gap:8,padding:'5px 8px',borderRadius:8,flex:1}}>
-            <div style={{position:'relative',flexShrink:0}}>
-              <div style={{width:28,height:28,borderRadius:'50%',background:'linear-gradient(135deg,var(--p),#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'#fff'}}>P</div>
-              <div style={{position:'absolute',bottom:-1,right:-1,width:8,height:8,borderRadius:'50%',background:'#10b981',border:'2px solid var(--s1)'}}/>
-            </div>
-            <div>
-              <div style={{fontSize:12,fontWeight:600,color:'var(--t1)'}}>Paul</div>
-              <div style={{fontSize:10,color:'var(--t2)'}}>Senior SDR · Online</div>
-            </div>
-          </div>
-        ) : (
-          <div style={{position:'relative'}}>
-            <div style={{width:28,height:28,borderRadius:'50%',background:'linear-gradient(135deg,var(--p),#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'#fff'}}>P</div>
-            <div style={{position:'absolute',bottom:0,right:0,width:7,height:7,borderRadius:'50%',background:'#10b981',border:'2px solid var(--s1)'}}/>
-          </div>
-        )}
-      </div>
-      {/* New Lead */}
-      <div style={{padding:sidebarOpen?'4px 10px 6px':'4px 8px 6px',flexShrink:0}}>
-        <button style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'8px 0',borderRadius:8,border:'none',cursor:'pointer',background:'var(--p)',color:'#fff',fontSize:12,fontWeight:600,boxShadow:'0 3px 10px rgba(91,63,200,0.3)'}}>
-          <Ico name="plus" size={14}/>{sidebarOpen && 'New Lead'}
-        </button>
-      </div>
-      {/* Nav */}
-      <nav style={{flex:1,overflowY:'auto',padding:'0 6px'}}>
-        {NAV.map(item => {
-          const active = view === item.id;
-          const badgeBg = item.badgeRed?'#ef4444':item.badgeAmber?'#f59e0b':dark?'#30363d':'#e5e7eb';
-          const badgeColor = item.badgeRed||item.badgeAmber?'#fff':'var(--t2)';
-          return (
-            <button key={item.id} onClick={()=>setView(item.id)} title={sidebarOpen?undefined:item.label}
-              style={{width:'100%',display:'flex',alignItems:'center',justifyContent:sidebarOpen?'flex-start':'center',gap:10,padding:sidebarOpen?'7px 10px':'8px 0',borderRadius:8,border:'none',cursor:'pointer',marginBottom:1,background:active?(dark?'rgba(91,63,200,0.18)':'rgba(91,63,200,0.1)'):'transparent',color:active?'var(--p-glow)':'var(--t2)',fontSize:12,fontWeight:active?600:500,transition:'all 0.12s'}}>
-              <Ico name={item.icon} size={15}/>
-              {sidebarOpen && (
-                <>
-                  <span style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',textAlign:'left'}}>{item.label}</span>
-                  {item.badge != null && <span style={{fontSize:10,fontWeight:700,padding:'1px 6px',borderRadius:99,background:badgeBg,color:badgeColor}}>{item.badge}</span>}
-                </>
-              )}
-            </button>
-          );
-        })}
-      </nav>
-      {/* Footer */}
-      <div style={{flexShrink:0,borderTop:'1px solid var(--b1)'}}>
-        <div style={{padding:sidebarOpen?'6px 10px 4px':'6px 8px 4px'}}>
-          <button className="ai-glow" style={{width:'100%',display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'8px 0',borderRadius:8,border:'1px solid rgba(91,63,200,0.35)',cursor:'pointer',background:'rgba(91,63,200,0.1)',color:'var(--p-glow)',fontSize:12,fontWeight:600}}>
-            <Ico name="sparkles" size={13}/>{sidebarOpen && 'AI Copilot'}
-          </button>
-        </div>
-        <div style={{display:'flex',alignItems:'center',justifyContent:sidebarOpen?'space-between':'center',padding:sidebarOpen?'2px 14px 10px':'2px 0 10px'}}>
-          {!sidebarOpen && <button onClick={toggleSidebar} style={{padding:5,border:'none',background:'transparent',cursor:'pointer',color:'var(--t2)',display:'flex'}}><Ico name="panelLeft" size={13}/></button>}
-          {sidebarOpen && (
-            <>
-              <button onClick={toggleTheme} style={{display:'flex',alignItems:'center',gap:4,fontSize:10,padding:'3px 8px',borderRadius:5,border:'1px solid var(--b1)',background:'transparent',color:'var(--t2)',cursor:'pointer'}}>
-                <Ico name={dark?'sun':'moon'} size={11}/>{dark?'Light':'Dark'}
-              </button>
-              <button onClick={toggleSidebar} style={{padding:3,border:'none',background:'transparent',cursor:'pointer',color:'var(--t2)',display:'flex'}}><Ico name="panelLeft" size={13}/></button>
-            </>
-          )}
-        </div>
-      </div>
-    </aside>
-  );
+// ═══ PIPELINE (KANBAN) ═══
+function Pipeline(){const{leads,updateLead,openLead}=useApp();const{dark,T1,T2,B1}=useTheme();const[over,setOver]=useState(null);const cols=STAGES.slice(0,7);return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:14}}><div><h1 style={{fontSize:20,fontWeight:700,color:T1,margin:0}}>Pipeline</h1><p style={{fontSize:12,color:T2,marginTop:3}}>Drag leads between stages</p></div><div style={{display:'flex',gap:10,overflowX:'auto',paddingBottom:8}}>{cols.map(stage=>{const ss=STAGE_STYLE[stage]||STAGE_STYLE['New'];const items=leads.filter(l=>l.stage===stage);const isOver=over===stage;return(<div key={stage} onDragOver={e=>{e.preventDefault();setOver(stage);}} onDragLeave={()=>setOver(null)} onDrop={e=>{e.preventDefault();const id=parseInt(e.dataTransfer.getData('lid'));if(id)updateLead(id,{stage});setOver(null);}} style={{flex:'0 0 200px',display:'flex',flexDirection:'column',background:isOver?ss.bg:'var(--s2)',border:`1px solid ${isOver?ss.color:B1}`,borderRadius:12,overflow:'hidden',transition:'all 0.15s',minHeight:400}}><div style={{padding:'10px 12px',borderBottom:`1px solid ${B1}`,background:dark?'rgba(0,0,0,0.2)':'rgba(0,0,0,0.03)',flexShrink:0}}><div style={{display:'flex',alignItems:'center',gap:6}}><div style={{width:8,height:8,borderRadius:'50%',background:ss.color}}/><span style={{fontSize:11,fontWeight:600,color:T1}}>{stage}</span><span style={{fontSize:10,fontWeight:700,color:ss.color,background:`${ss.color}20`,padding:'0 5px',borderRadius:99,fontFamily:'JetBrains Mono,monospace'}}>{items.length}</span></div></div><div style={{flex:1,overflowY:'auto',padding:'8px 6px',display:'flex',flexDirection:'column',gap:6}}>{items.length===0?<div style={{padding:'16px 8px',textAlign:'center',color:'rgba(72,79,88,0.5)',fontSize:11,border:'1.5px dashed var(--b1)',borderRadius:8}}>Drop here</div>:items.map(lead=>{const is=INTENT_STYLE[lead.intent]||INTENT_STYLE['AI Visibility'];return(<div key={lead.id} draggable onDragStart={e=>e.dataTransfer.setData('lid',lead.id)} onClick={()=>openLead(lead)} style={{background:dark?'#161b22':'#fff',border:`1px solid ${B1}`,borderRadius:9,padding:'10px',cursor:'grab',transition:'border-color 0.15s'}} onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(91,63,200,0.4)'} onMouseLeave={e=>e.currentTarget.style.borderColor=B1}><div style={{fontSize:11,fontWeight:600,color:T1,marginBottom:5,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{lead.business}</div><span style={{fontSize:9,fontWeight:500,padding:'1px 6px',borderRadius:99,display:'inline-block',marginBottom:5,background:is.bg,color:is.color}}>{lead.intent}</span><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={{fontSize:9,color:T2}}>{lead.lastTouch}</span><span style={{fontSize:10,fontWeight:700,color:lead.aiScore>=80?'#10b981':lead.aiScore>=65?'#f59e0b':'#ef4444',fontFamily:'JetBrains Mono,monospace'}}>{lead.aiScore}</span></div></div>);})}</div></div>);})}</div></div>);}
+
+// ═══ REPORTS ═══
+function Reports(){const{leads}=useApp();const{T1,T2,B1,S1,S3}=useTheme();const acts=leads.flatMap(l=>l.activities||[]);const emails=acts.filter(a=>a.type==='Email').length;const calls=acts.filter(a=>a.type==='Call').length;const sms=acts.filter(a=>a.type==='SMS').length;const replies=acts.filter(a=>['Replied','Positive','Connected'].includes(a.outcome)).length;const rr=emails>0?parseFloat((replies/emails*100).toFixed(1)):0;
+const cards=[{label:'Total Leads',value:leads.length,icon:'users',color:'#7c5ce8',bg:'rgba(91,63,200,0.12)'},{label:'Emails Logged',value:emails,icon:'mail',color:'#3b82f6',bg:'rgba(59,130,246,0.12)'},{label:'Reply Rate',value:`${rr}%`,icon:'trending',color:'#10b981',bg:'rgba(16,185,129,0.12)'},{label:'Demos Booked',value:leads.filter(l=>l.stage==='Demo Booked').length,icon:'calendar',color:'#f59e0b',bg:'rgba(245,158,11,0.12)'}];
+return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:18}}><div><h1 style={{fontSize:22,fontWeight:700,color:T1,margin:0}}>Reports & Analytics</h1><p style={{fontSize:12,color:T2,marginTop:4}}>Live data from {leads.length} leads</p></div><div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>{cards.map(c=><div key={c.label} style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,padding:'14px 16px'}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}><span style={{fontSize:10,fontWeight:600,color:T2,textTransform:'uppercase',letterSpacing:'0.06em'}}>{c.label}</span><div style={{width:24,height:24,borderRadius:6,background:c.bg,display:'flex',alignItems:'center',justifyContent:'center'}}><Ico name={c.icon} size={12} color={c.color}/></div></div><div style={{fontSize:26,fontWeight:700,color:T1,fontFamily:'JetBrains Mono,monospace',lineHeight:1}}>{c.value}</div></div>)}</div><div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:20}}><div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:14}}>Stage Funnel</div>{STAGES.map(stage=>{const count=leads.filter(l=>l.stage===stage).length;const pct=leads.length>0?Math.round(count/leads.length*100):0;const ss=STAGE_STYLE[stage];return(<div key={stage} style={{marginBottom:8}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}><span style={{fontSize:12,color:T1}}>{stage}</span><span style={{fontSize:12,fontWeight:700,color:ss.color,fontFamily:'JetBrains Mono,monospace'}}>{count} ({pct}%)</span></div><div style={{height:7,background:S3||'var(--s3)',borderRadius:99,overflow:'hidden'}}><div style={{height:7,width:`${pct}%`,background:ss.color,borderRadius:99}}/></div></div>);})}</div></div>);}
+
+// ═══ CADENCES ═══
+function Cadences(){const{cadences,saveCadence,deleteCadence}=useApp();const{T1,T2,B1,S1,BG}=useTheme();const[editing,setEditing]=useState(null);const[form,setForm]=useState({name:'',description:'',steps:[]});const[showForm,setShowForm]=useState(false);const CHANNELS=['Email','SMS','Call','LinkedIn','Voicemail'];const CH_COLORS={Email:'#7c5ce8',SMS:'#3b82f6',Call:'#10b981',LinkedIn:'#0a66c2',Voicemail:'#f59e0b'};
+const open=(c=null)=>{setEditing(c?.id||null);setForm(c?{...c}:{name:'',description:'',steps:[]});setShowForm(true);};const addStep=()=>setForm(f=>({...f,steps:[...f.steps,{day:f.steps.length+1,channel:'Email',angle:''}]}));const save=()=>{saveCadence({...form,id:editing});setShowForm(false);};
+if(showForm)return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:12,maxWidth:700}}><div style={{display:'flex',alignItems:'center',gap:8,marginBottom:4}}><button onClick={()=>setShowForm(false)} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:7,border:`1px solid ${B1}`,background:'transparent',color:T2,cursor:'pointer',fontSize:12,fontFamily:'inherit'}}><Ico name="arrowLeft" size={12}/>Back</button><span style={{fontSize:14,fontWeight:700,color:T1}}>{editing?'Edit':'New'} Cadence</span></div><Card><div style={{display:'flex',flexDirection:'column',gap:10}}><div><div style={{fontSize:11,fontWeight:600,color:T2,marginBottom:5}}>Name</div><input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Cadence name…" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:`1px solid ${B1}`,background:BG,color:T1,fontSize:12,fontFamily:'inherit',outline:'none'}}/></div><div><div style={{fontSize:11,fontWeight:600,color:T2,marginBottom:5}}>Description</div><input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="Who is this for?" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:`1px solid ${B1}`,background:BG,color:T1,fontSize:12,fontFamily:'inherit',outline:'none'}}/></div></div></Card><div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}><span style={{fontSize:13,fontWeight:600,color:T1}}>Steps</span><Btn variant="ghost" size="sm" onClick={addStep}><Ico name="plus" size={12}/>Add Step</Btn></div><div style={{display:'flex',flexDirection:'column',gap:6}}>{form.steps.length===0?<div style={{textAlign:'center',padding:20,color:T2,border:`1px dashed ${B1}`,borderRadius:9,fontSize:12}}>Click "Add Step"</div>:form.steps.map((step,i)=>{const cc=CH_COLORS[step.channel]||'#7c5ce8';return(<div key={i} style={{display:'grid',gridTemplateColumns:'60px 110px 1fr 28px',gap:8,alignItems:'center',padding:'10px 12px',background:S1,border:`1px solid ${B1}`,borderRadius:9}}><div><div style={{fontSize:9,color:T2,marginBottom:2}}>DAY</div><input type="number" min={1} value={step.day} onChange={e=>setForm(f=>({...f,steps:f.steps.map((s,j)=>j===i?{...s,day:+e.target.value}:s)}))} style={{width:'100%',padding:'5px 6px',borderRadius:6,border:`1px solid ${B1}`,background:BG,color:T1,fontSize:12,fontFamily:'inherit',outline:'none',textAlign:'center'}}/></div><div><div style={{fontSize:9,color:T2,marginBottom:2}}>CHANNEL</div><select value={step.channel} onChange={e=>setForm(f=>({...f,steps:f.steps.map((s,j)=>j===i?{...s,channel:e.target.value}:s)}))} style={{width:'100%',padding:'5px 6px',borderRadius:6,border:`1px solid ${cc}40`,background:`${cc}12`,color:cc,fontSize:11,fontFamily:'inherit',outline:'none',cursor:'pointer'}}>{CHANNELS.map(c=><option key={c}>{c}</option>)}</select></div><div><div style={{fontSize:9,color:T2,marginBottom:2}}>ANGLE</div><input value={step.angle||''} onChange={e=>setForm(f=>({...f,steps:f.steps.map((s,j)=>j===i?{...s,angle:e.target.value}:s)}))} placeholder="Message angle…" style={{width:'100%',padding:'5px 8px',borderRadius:6,border:`1px solid ${B1}`,background:BG,color:T1,fontSize:12,fontFamily:'inherit',outline:'none'}}/></div><button onClick={()=>setForm(f=>({...f,steps:f.steps.filter((_,j)=>j!==i)}))} style={{padding:4,border:'none',background:'transparent',cursor:'pointer',color:T2}}><Ico name="trash" size={12}/></button></div>);})}</div><div style={{display:'flex',gap:8,justifyContent:'flex-end'}}><Btn variant="ghost" onClick={()=>setShowForm(false)}>Cancel</Btn><Btn onClick={save}><Ico name="save" size={12}/>Save</Btn></div></div>);
+return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}><div><h1 style={{fontSize:20,fontWeight:700,color:T1,margin:0}}>Cadences</h1><p style={{fontSize:12,color:T2,marginTop:3}}>Outreach sequences</p></div><Btn onClick={()=>open()}><Ico name="plus" size={13}/>New Cadence</Btn></div><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12}}>{cadences.map(c=>(<div key={c.id} style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,padding:16}}><div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:10}}><div><div style={{fontSize:13,fontWeight:700,color:T1}}>{c.name}</div><div style={{fontSize:11,color:T2,marginTop:2}}>{c.description}</div></div><div style={{display:'flex',gap:4}}><button onClick={()=>open(c)} style={{padding:5,border:`1px solid ${B1}`,background:'transparent',cursor:'pointer',color:T2,borderRadius:5}}><Ico name="fileText" size={12}/></button><button onClick={()=>deleteCadence(c.id)} style={{padding:5,border:'1px solid rgba(239,68,68,0.3)',background:'transparent',cursor:'pointer',color:'#ef4444',borderRadius:5}}><Ico name="trash" size={12}/></button></div></div><div style={{display:'flex',flexDirection:'column',gap:4}}>{(c.steps||[]).map((step,i)=>{const cc=CH_COLORS[step.channel]||'#7c5ce8';return(<div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 8px',borderRadius:6,background:'var(--bg)',border:`1px solid ${B1}`}}><span style={{fontSize:9,fontFamily:'JetBrains Mono,monospace',color:T2,width:36}}>Day {step.day}</span><span style={{fontSize:10,fontWeight:600,color:cc}}>{step.channel}</span><span style={{fontSize:10,color:T1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1}}>{step.angle}</span></div>);})}</div><div style={{marginTop:10,fontSize:10,color:T2}}>{(c.steps||[]).length} steps</div></div>))}</div></div>);
 }
 
-// ═══════════════════════════════════════════════
-// TOP BAR
-// ═══════════════════════════════════════════════
-function TopBar({ sw }) {
-  const { view, activeLead, theme } = useApp();
-  const dark = theme === 'dark';
-  const title = activeLead ? activeLead.business : ({dashboard:'Dashboard',workqueue:'Work Queue',leads:'My Leads',hot:'Hot Leads',followups:'Follow Ups',demobooked:'Demo Booked',reengage:'Re-engage',pipeline:'Pipeline',reports:'Reports',cadences:'Cadences',memory:'AI Memory',settings:'Settings'}[view] || 'Work Queue');
-  return (
-    <header style={{position:'fixed',top:0,right:0,left:sw,height:56,zIndex:30,display:'flex',alignItems:'center',gap:16,padding:'0 20px',background:dark?'rgba(13,17,23,0.95)':'rgba(255,255,255,0.95)',borderBottom:'1px solid var(--b1)',backdropFilter:'blur(12px)',transition:'left 0.2s ease'}}>
-      <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
-        <span style={{fontSize:11,color:'var(--t2)'}}>SDR</span>
-        <Ico name="chevRight" size={12} style={{color:'var(--t3)'}}/>
-        <span style={{fontSize:12,fontWeight:600,color:'var(--t1)'}}>{title}</span>
-      </div>
-      <div style={{flex:1}}/>
-      <div style={{width:30,height:30,borderRadius:'50%',background:'linear-gradient(135deg,var(--p),#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'#fff',cursor:'pointer'}}>P</div>
-    </header>
-  );
+// ═══ AI MEMORY ═══
+function AIMemory(){const{leads,addMemory,removeMemory}=useApp();const{T1,T2,B1,S1,S3,BG}=useTheme();const[search,setSearch]=useState('');const[tagF,setTagF]=useState('All');const[adding,setAdding]=useState(false);const[text,setText]=useState('');const[tag,setTag]=useState('Context');const[leadId,setLeadId]=useState('');const TAGS=['Context','Pain Point','Objection','Competitor','Win Signal','Decision Maker','Budget','Timeline'];const TC={'Context':'#60a5fa','Pain Point':'#f472b6','Objection':'#f87171','Competitor':'#fcd34d','Win Signal':'#34d399','Decision Maker':'#7c5ce8','Budget':'#fcd34d','Timeline':'#38bdf8'};
+const all=useMemo(()=>leads.flatMap(l=>(l.memory||[]).map(m=>({...m,leadId:l.id,biz:l.business}))).sort((a,b)=>(b.id||0)-(a.id||0)),[leads]);const filtered=useMemo(()=>{let r=all;if(search){const q=search.toLowerCase();r=r.filter(m=>m.text?.toLowerCase().includes(q)||m.biz?.toLowerCase().includes(q));}if(tagF!=='All')r=r.filter(m=>m.tag===tagF);return r;},[all,search,tagF]);const grouped=filtered.reduce((g,m)=>{(g[m.biz]||(g[m.biz]=[])).push(m);return g;},{});
+const save=()=>{if(!text.trim()||!leadId)return;addMemory(parseInt(leadId),{text:text.trim(),tag,date:'Today'});setText('');setAdding(false);setLeadId('');};
+return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:14,maxWidth:900}}><div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}><div><h1 style={{fontSize:20,fontWeight:700,color:T1,margin:0,display:'flex',alignItems:'center',gap:8}}><Ico name="brain" size={20} color="var(--p-glow)"/> AI Memory</h1><p style={{fontSize:12,color:T2,marginTop:3}}>Context across all leads</p></div><Btn onClick={()=>setAdding(true)}><Ico name="plus" size={13}/>Add Memory</Btn></div>
+<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10}}>{[{label:'Total Entries',value:all.length,color:'#7c5ce8'},{label:'Leads Covered',value:new Set(all.map(m=>m.leadId)).size,color:'#3b82f6'},{label:'Win Signals',value:all.filter(m=>m.tag==='Win Signal').length,color:'#10b981'},{label:'Objections',value:all.filter(m=>m.tag==='Objection').length,color:'#ef4444'}].map(s=><div key={s.label} style={{background:S1,border:`1px solid ${B1}`,borderRadius:10,padding:'12px 14px'}}><div style={{fontSize:22,fontWeight:700,color:s.color,fontFamily:'JetBrains Mono,monospace',lineHeight:1}}>{s.value}</div><div style={{fontSize:11,color:T2,marginTop:4}}>{s.label}</div></div>)}</div>
+{adding&&<div style={{background:S1,border:'1px solid rgba(91,63,200,0.3)',borderRadius:10,padding:14}}><div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}><span style={{fontSize:12,fontWeight:600,color:T1}}>New Memory Entry</span><button onClick={()=>setAdding(false)} style={{border:'none',background:'transparent',cursor:'pointer',color:T2,display:'flex'}}><Ico name="x" size={13}/></button></div><div style={{display:'flex',flexDirection:'column',gap:8}}><textarea value={text} onChange={e=>setText(e.target.value)} rows={2} placeholder="What to remember?" style={{width:'100%',padding:'8px 10px',borderRadius:8,border:`1px solid ${B1}`,background:BG,color:T1,fontSize:12,fontFamily:'inherit',resize:'none',lineHeight:1.6,outline:'none'}}/><div style={{display:'flex',gap:8}}><select value={leadId} onChange={e=>setLeadId(e.target.value)} style={{flex:1,padding:'7px 10px',borderRadius:8,border:`1px solid ${B1}`,background:'var(--s2)',color:T1,fontSize:11,fontFamily:'inherit',outline:'none',cursor:'pointer'}}><option value="">Select lead…</option>{leads.map(l=><option key={l.id} value={l.id}>{l.business}</option>)}</select><select value={tag} onChange={e=>setTag(e.target.value)} style={{flex:1,padding:'7px 10px',borderRadius:8,border:`1px solid ${B1}`,background:'var(--s2)',color:T1,fontSize:11,fontFamily:'inherit',outline:'none',cursor:'pointer'}}>{TAGS.map(t=><option key={t}>{t}</option>)}</select><Btn onClick={save} disabled={!text.trim()||!leadId}>Save</Btn></div></div></div>}
+<div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}><div style={{flex:1,minWidth:180,maxWidth:280,display:'flex',alignItems:'center',gap:7,padding:'7px 10px',borderRadius:8,background:S1,border:`1px solid ${B1}`}}><Ico name="search" size={12} color={T2}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" style={{flex:1,background:'transparent',border:'none',outline:'none',fontSize:12,color:T1,fontFamily:'inherit'}}/></div><div style={{display:'flex',gap:4,flexWrap:'wrap'}}>{['All',...TAGS].map(t=>{const active=tagF===t;const c=TC[t];return<button key={t} onClick={()=>setTagF(t)} style={{padding:'4px 10px',borderRadius:99,border:`1px solid ${active?c||'var(--p)':B1}`,background:active?`${c||'#7c5ce8'}18`:'transparent',color:active?c||'var(--p-glow)':T2,fontSize:10,fontWeight:active?600:400,cursor:'pointer',fontFamily:'inherit'}}>{t}</button>;})}</div></div>
+{Object.keys(grouped).length===0?<EmptyState icon="🧠" title="No memory entries" sub="Add entries on any lead"/>:Object.entries(grouped).map(([biz,mems])=>(<div key={biz} style={{display:'flex',flexDirection:'column',gap:6}}><div style={{display:'flex',alignItems:'center',gap:8}}><div style={{width:22,height:22,borderRadius:5,background:'linear-gradient(135deg,var(--p),#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:8,fontWeight:700,color:'#fff',flexShrink:0}}>{biz.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div><span style={{fontSize:12,fontWeight:600,color:T1}}>{biz}</span><span style={{fontSize:10,color:T2,background:S3,padding:'1px 7px',borderRadius:99}}>{mems.length}</span><div style={{flex:1,height:1,background:B1}}/></div>{mems.map(m=>{const c=TC[m.tag]||'#60a5fa';return(<div key={m.id} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'10px 14px',background:S1,border:`1px solid ${B1}`,borderRadius:9}}><Ico name="brain" size={13} color="var(--p-glow)" style={{flexShrink:0,marginTop:2}}/><div style={{flex:1}}><p style={{fontSize:12,color:T1,lineHeight:1.6,margin:0}}>{m.text}</p><div style={{display:'flex',gap:6,marginTop:5}}>{m.tag&&<span style={{fontSize:10,fontWeight:600,padding:'1px 7px',borderRadius:99,background:`${c}18`,color:c}}>{m.tag}</span>}<span style={{fontSize:10,color:T2}}>{m.date}</span></div></div><button onClick={()=>removeMemory(m.leadId,m.id)} style={{padding:3,border:'none',background:'transparent',cursor:'pointer',color:T2,opacity:.5}}><Ico name="trash" size={12}/></button></div>);})}</div>))}
+</div>);
 }
 
-// ═══════════════════════════════════════════════
-// WORK QUEUE — Main View
-// ═══════════════════════════════════════════════
-function WorkQueue() {
-  const { leads, openLead, selected, toggleSelect, selectAll, clearSelect, bulkUpdateStage } = useApp();
-  const [filter, setFilter] = useState('all');
-  const [search, setSearch] = useState('');
+// ═══ NEW LEAD ═══
+function NewLead(){const{addLead,setView}=useApp();const{T1,T2,B1,S1,BG}=useTheme();const[raw,setRaw]=useState('SmileCraft Dental\nsarah@smilecraftdental.com\n(512) 555-0198\nAustin, TX');const[parsed,setParsed]=useState(null);const[fields,setFields]=useState({});const[saved,setSaved]=useState(false);
+const parse=()=>{const lines=raw.split('\n').map(l=>l.trim()).filter(Boolean);const r={};lines.forEach(line=>{const em=line.match(/[\w.+\-]+@[\w\-]+\.\w+/);if(em&&!r.email)r.email=em[0];const ph=line.match(/\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/);if(ph&&!r.phone)r.phone=ph[0];if(/,\s*[A-Z]{2}\b/.test(line)&&!r.city)r.city=line;if(!r.business&&/^[A-Z]/.test(line)&&!line.includes('@')&&!line.match(/^https?:\/\//)&&line.length<80)r.business=line;for(const[rx,ind]of[[/dental/i,'Dental'],[/spa|med.?spa/i,'Med Spa'],[/chiro/i,'Chiropractic'],[/wellness/i,'Wellness'],[/fitness/i,'Fitness'],[/derm|skin/i,'Dermatology']]){if(rx.test(line)&&!r.industry){r.industry=ind;break;}}});r.intent=r.intent||'AI Visibility';r.industry=r.industry||'Healthcare';setParsed(r);setFields({...r,stage:'New'});};
+const saveLead=()=>{addLead({...fields,reviews:0,rating:0,aiVisibility:0,compGap:'Medium',nextAction:'Initial Outreach',lastTouch:'Never',stage:fields.stage||'New',cadenceDay:0,cadenceTotal:7,aeNotes:''});setSaved(true);setTimeout(()=>setView('workqueue'),1200);};
+const inp={width:'100%',padding:'5px 8px',borderRadius:7,border:`1px solid ${B1}`,background:BG,color:T1,fontSize:11,fontFamily:'inherit',outline:'none'};
+return(<div className="fade-up" style={{maxWidth:800}}><div style={{marginBottom:16}}><h1 style={{fontSize:20,fontWeight:700,color:T1,margin:0}}>New Lead — Smart Parser</h1><p style={{fontSize:12,color:T2,marginTop:3}}>Paste raw data and we extract everything.</p></div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:18}}><div style={{display:'flex',flexDirection:'column',gap:10}}><Card><div style={{fontSize:11,fontWeight:600,color:T2,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:6}}>Raw Lead Data</div><textarea value={raw} onChange={e=>{setRaw(e.target.value);setParsed(null);}} rows={10} placeholder="Paste data here…" style={{width:'100%',padding:10,borderRadius:8,resize:'vertical',border:`1px solid ${B1}`,outline:'none',background:BG,color:T1,fontSize:11,fontFamily:'JetBrains Mono,monospace',lineHeight:1.7}}/></Card><Btn onClick={parse} disabled={!raw.trim()} size="lg" style={{width:'100%',justifyContent:'center'}}><Ico name="sparkles" size={14}/>Parse</Btn></div><div style={{display:'flex',flexDirection:'column',gap:10}}><Card><div style={{fontSize:11,fontWeight:600,color:T2,textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Extracted Fields</div>{parsed?<div style={{display:'flex',flexDirection:'column',gap:4}}>{[['business','Business'],['email','Email'],['phone','Phone'],['city','City'],['industry','Industry'],['intent','Intent']].map(([key,label])=><div key={key} style={{display:'grid',gridTemplateColumns:'80px 1fr',gap:6,alignItems:'center',padding:'5px 8px',borderRadius:7,border:`1px solid ${parsed[key]?'rgba(16,185,129,0.3)':B1}`,background:parsed[key]?'rgba(16,185,129,0.04)':'var(--s2)'}}><div style={{fontSize:9,fontWeight:600,color:T2,textTransform:'uppercase'}}>{label}</div><input value={fields[key]||''} onChange={e=>setFields(f=>({...f,[key]:e.target.value}))} style={inp}/></div>)}</div>:<div style={{textAlign:'center',padding:20,color:T2,fontSize:12}}>Click "Parse" to extract fields</div>}</Card>{parsed&&!saved&&<Btn onClick={saveLead} size="lg" style={{width:'100%',justifyContent:'center'}}><Ico name="plus" size={14}/>Save Lead</Btn>}{saved&&<div style={{display:'flex',alignItems:'center',gap:8,padding:'12px 14px',borderRadius:9,background:'rgba(16,185,129,0.1)',border:'1px solid rgba(16,185,129,0.25)'}}><Ico name="checkCircle" size={14} color="#10b981"/><span style={{fontSize:12,fontWeight:600,color:'#10b981'}}>Saved! Redirecting…</span></div>}</div></div></div>);}
 
-  const filtered = useMemo(() => {
-    let r = [...leads];
-    if (search) { const q = search.toLowerCase(); r = r.filter(l => l.business.toLowerCase().includes(q) || l.email.toLowerCase().includes(q) || l.contact.toLowerCase().includes(q)); }
-    if (filter === 'hot') r = r.filter(l => l.stage === 'Hot');
-    else if (filter === 'followup') r = r.filter(l => l.stage === 'Follow Up');
-    else if (filter === 'demo') r = r.filter(l => l.stage === 'Demo Booked');
-    return r.sort((a, b) => b.aiScore - a.aiScore);
-  }, [leads, filter, search]);
+// ═══ SETTINGS ═══
+function Settings(){const{settings,updateSettings,toggleTheme,theme}=useApp();const{T1,T2,B1,S1,BG}=useTheme();const[tab,setTab]=useState('profile');const[saved,setSaved]=useState(false);const[s,setS]=useState({...settings});
+const save=()=>{updateSettings(s);setSaved(true);setTimeout(()=>setSaved(false),2500);};
+const inp={width:'100%',padding:'8px 10px',borderRadius:8,border:`1px solid ${B1}`,background:BG,color:T1,fontSize:12,fontFamily:'inherit',outline:'none'};
+const TABS=[{id:'profile',icon:'users',label:'Profile'},{id:'ai',icon:'sparkles',label:'AI & Copilot'},{id:'appearance',icon:'palette',label:'Appearance'}];
+return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:14,maxWidth:880}}><div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}><div><h1 style={{fontSize:20,fontWeight:700,color:T1,margin:0}}>Settings</h1><p style={{fontSize:12,color:T2,marginTop:3}}>Manage your account and AI providers</p></div><Btn onClick={save} style={{background:saved?'#10b981':'var(--p)',minWidth:130}}>{saved?<><Ico name="checkCircle" size={13}/> Saved!</>:<><Ico name="save" size={13}/> Save Changes</>}</Btn></div><div style={{display:'grid',gridTemplateColumns:'200px 1fr',gap:14}}><div style={{display:'flex',flexDirection:'column',gap:2}}>{TABS.map(t=>{const active=tab===t.id;return(<button key={t.id} onClick={()=>setTab(t.id)} style={{display:'flex',alignItems:'center',gap:10,padding:'9px 12px',borderRadius:8,border:'none',cursor:'pointer',fontFamily:'inherit',background:active?'rgba(91,63,200,0.15)':'transparent',color:active?'var(--p-glow)':T2,fontSize:12,fontWeight:active?600:500,textAlign:'left'}}><Ico name={t.icon} size={14}/>{t.label}</button>);})}</div><div style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,padding:22,display:'flex',flexDirection:'column',gap:16}}>
+{tab==='profile'&&<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{fontSize:13,fontWeight:600,color:T1,borderBottom:`1px solid ${B1}`,paddingBottom:10}}>Personal Information</div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>{[['Name',s.name,'name'],['Title',s.title,'title'],['Email',s.email,'email']].map(([label,val,key])=><div key={key}><div style={{fontSize:11,fontWeight:600,color:T2,marginBottom:5}}>{label}</div><input value={val||''} onChange={e=>setS(x=>({...x,[key]:e.target.value}))} style={inp}/></div>)}</div></div>}
+{tab==='ai'&&<div style={{display:'flex',flexDirection:'column',gap:16}}><div style={{fontSize:13,fontWeight:600,color:T1,borderBottom:`1px solid ${B1}`,paddingBottom:10}}>AI Configuration</div><div><div style={{fontSize:11,fontWeight:600,color:T2,marginBottom:8}}>AI Provider</div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>{[{id:'claude',label:'Claude',color:'#7c5ce8'},{id:'gemini',label:'Gemini',color:'#3b82f6'}].map(p=>{const active=s.aiProvider===p.id;return(<button key={p.id} onClick={()=>setS(x=>({...x,aiProvider:p.id}))} style={{padding:14,borderRadius:10,border:`2px solid ${active?p.color:B1}`,background:active?`${p.color}12`:'transparent',cursor:'pointer',textAlign:'left'}}><div style={{display:'flex',alignItems:'center',gap:8}}><span style={{fontSize:13,fontWeight:700,color:active?p.color:T1}}>{p.label}</span>{active&&<Ico name="checkCircle" size={14} color={p.color}/>}</div></button>);})}</div></div><div><div style={{fontSize:11,fontWeight:600,color:T2,marginBottom:5}}>Claude API Key</div><input type="password" value={s.claudeKey||''} onChange={e=>setS(x=>({...x,claudeKey:e.target.value}))} placeholder="sk-ant-…" style={{...inp,fontFamily:'JetBrains Mono,monospace'}}/></div><div><div style={{fontSize:11,fontWeight:600,color:T2,marginBottom:5}}>Gemini API Key</div><input type="password" value={s.geminiKey||''} onChange={e=>setS(x=>({...x,geminiKey:e.target.value}))} placeholder="AIza…" style={{...inp,fontFamily:'JetBrains Mono,monospace'}}/></div></div>}
+{tab==='appearance'&&<div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{fontSize:13,fontWeight:600,color:T1,borderBottom:`1px solid ${B1}`,paddingBottom:10}}>Theme</div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>{[{id:'dark',label:'Dark Mode',preview:'#0d1117'},{id:'light',label:'Light Mode',preview:'#f8f9fa'}].map(t=>{const active=theme===t.id;return(<button key={t.id} onClick={()=>{if(theme!==t.id)toggleTheme();}} style={{padding:14,borderRadius:10,border:`2px solid ${active?'var(--p)':B1}`,background:active?'var(--p-soft)':'transparent',cursor:'pointer',textAlign:'left'}}><div style={{width:'100%',height:36,borderRadius:7,background:t.preview,border:'1px solid var(--b1)',marginBottom:10}}/><div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><span style={{fontSize:12,fontWeight:600,color:T1}}>{t.label}</span>{active&&<Ico name="checkCircle" size={14} color="var(--p-glow)"/>}</div></button>);})}</div></div>}
+</div></div></div>);}
 
-  const allIds = filtered.map(l => l.id);
-  const allSel = allIds.length > 0 && allIds.every(id => selected.has(id));
-
-  const statCards = [
-    {label:'Hot Leads',icon:'flame',color:'#ef4444',bg:'rgba(239,68,68,0.12)',count:leads.filter(l=>l.stage==='Hot').length},
-    {label:'Follow Ups',icon:'refresh',color:'#f59e0b',bg:'rgba(245,158,11,0.12)',count:leads.filter(l=>l.stage==='Follow Up').length},
-    {label:'Demo Booked',icon:'calendar',color:'#7c5ce8',bg:'rgba(91,63,200,0.15)',count:leads.filter(l=>l.stage==='Demo Booked').length},
-    {label:'Re-engage',icon:'radar',color:'#38bdf8',bg:'rgba(56,189,248,0.12)',count:leads.filter(l=>l.stage==='Re-engage').length},
-    {label:'New',icon:'users',color:'#3b82f6',bg:'rgba(59,130,246,0.12)',count:leads.filter(l=>l.stage==='New').length},
-    {label:'Converted',icon:'checkCircle',color:'#10b981',bg:'rgba(16,185,129,0.12)',count:leads.filter(l=>l.stage==='Converted').length},
-  ];
-
-  return (
-    <div className="fade-up" style={{display:'flex',flexDirection:'column',gap:16}}>
-      {/* Header */}
-      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between'}}>
-        <div>
-          <h1 style={{fontSize:20,fontWeight:700,color:'var(--t1)',margin:0}}>Work Queue</h1>
-          <p style={{fontSize:12,color:'var(--t2)',marginTop:3}}>Your action center — sorted by AI score · {leads.length} leads</p>
-        </div>
-        <button className="ai-glow" style={{display:'flex',alignItems:'center',gap:6,padding:'8px 16px',borderRadius:8,border:'none',cursor:'pointer',background:'var(--p)',color:'#fff',fontSize:12,fontWeight:600,boxShadow:'0 3px 12px rgba(91,63,200,0.35)'}}>
-          <Ico name="sparkles" size={13}/>AI Copilot
-        </button>
-      </div>
-
-      {/* Stat Cards */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:10}}>
-        {statCards.map(c => (
-          <div key={c.label} style={{background:'var(--s1)',border:'1px solid var(--b1)',borderRadius:10,padding:'12px 14px',cursor:'pointer',transition:'border-color 0.15s'}}
-            onMouseEnter={e=>e.currentTarget.style.borderColor='rgba(91,63,200,0.5)'}
-            onMouseLeave={e=>e.currentTarget.style.borderColor='var(--b1)'}>
-            <div style={{width:28,height:28,borderRadius:7,background:c.bg,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:8}}><Ico name={c.icon} size={14} style={{color:c.color}}/></div>
-            <div style={{fontSize:24,fontWeight:700,color:'var(--t1)',lineHeight:1,fontFamily:'JetBrains Mono,monospace'}}>{c.count}</div>
-            <div style={{fontSize:11,fontWeight:600,color:c.color,marginTop:5}}>{c.label}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Bulk Action Bar */}
-      {selected.size > 0 && (
-        <div style={{display:'flex',alignItems:'center',gap:10,padding:'8px 14px',borderRadius:9,background:'var(--p-chip)',border:'1px solid rgba(91,63,200,0.3)'}}>
-          <span style={{fontSize:12,fontWeight:600,color:'var(--p-glow)'}}>{selected.size} selected</span>
-          {['Hot','Follow Up','Demo Booked','Nurturing','Lost'].map(s => (
-            <button key={s} onClick={()=>bulkUpdateStage(s)} style={{fontSize:10,padding:'3px 10px',borderRadius:99,border:'none',background:'rgba(91,63,200,0.2)',color:'var(--p-glow)',cursor:'pointer',fontFamily:'inherit',fontWeight:500}}>→ {s}</button>
-          ))}
-          <button onClick={clearSelect} style={{marginLeft:'auto',fontSize:11,color:'var(--t2)',background:'none',border:'none',cursor:'pointer',fontFamily:'inherit'}}>Clear</button>
-        </div>
-      )}
-
-      {/* Table Container */}
-      <div style={{background:'var(--s1)',border:'1px solid var(--b1)',borderRadius:12,overflow:'hidden'}}>
-        {/* Filter Tabs + Search */}
-        <div style={{display:'flex',alignItems:'center',padding:'8px 12px',borderBottom:'1px solid var(--b1)',gap:8}}>
-          <div style={{display:'flex',gap:2}}>
-            {[{id:'all',label:'All',count:leads.length},{id:'hot',label:'Hot',count:leads.filter(l=>l.stage==='Hot').length},{id:'followup',label:'Follow Up',count:leads.filter(l=>l.stage==='Follow Up').length},{id:'demo',label:'Demo',count:leads.filter(l=>l.stage==='Demo Booked').length}].map(t => (
-              <button key={t.id} onClick={()=>setFilter(t.id)} style={{display:'flex',alignItems:'center',gap:4,padding:'5px 10px',borderRadius:7,border:'none',cursor:'pointer',background:filter===t.id?'var(--p)':'transparent',color:filter===t.id?'#fff':'var(--t2)',fontSize:11,fontWeight:filter===t.id?600:400,fontFamily:'inherit',transition:'all 0.12s'}}>
-                {t.label}<span style={{fontSize:10,opacity:.65}}>{t.count}</span>
-              </button>
-            ))}
-          </div>
-          <div style={{flex:1}}/>
-          <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 10px',borderRadius:7,border:'1px solid var(--b1)',background:'var(--s2)',maxWidth:220}}>
-            <Ico name="search" size={12} style={{color:'var(--t2)'}}/>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search leads…" style={{flex:1,background:'transparent',border:'none',outline:'none',fontSize:11,color:'var(--t1)',fontFamily:'inherit'}}/>
-            {search && <button onClick={()=>setSearch('')} style={{border:'none',background:'transparent',cursor:'pointer',color:'var(--t2)',display:'flex',padding:0}}><Ico name="x" size={11}/></button>}
-          </div>
-        </div>
-
-        {/* Table Header */}
-        <div style={{display:'grid',gridTemplateColumns:'28px minmax(0,1.8fr) 110px 52px 72px 80px 80px minmax(0,1fr) 90px 100px 28px',gap:8,padding:'7px 14px',borderBottom:'1px solid var(--b1)',background:'rgba(0,0,0,0.2)',alignItems:'center'}}>
-          <input type="checkbox" checked={allSel} onChange={e=>e.target.checked?selectAll(allIds):clearSelect()} style={{width:13,height:13,accentColor:'var(--p)',cursor:'pointer'}}/>
-          {['Business','Intent','Score','Reviews','AI Vis.','Gap','Next Action','Last Touch','Status',''].map(h => (
-            <div key={h} style={{fontSize:10,fontWeight:600,color:'var(--t2)',textTransform:'uppercase',letterSpacing:'0.04em'}}>{h}</div>
-          ))}
-        </div>
-
-        {/* Table Rows */}
-        {filtered.length === 0 ? (
-          <div style={{textAlign:'center',padding:'48px 24px',color:'var(--t2)'}}>
-            <div style={{fontSize:32,marginBottom:12}}>🔍</div>
-            <div style={{fontSize:14,fontWeight:600,color:'var(--t1)',marginBottom:6}}>No leads match filters</div>
-            <div style={{fontSize:12}}>Try adjusting the search or filter above.</div>
-          </div>
-        ) : filtered.map(lead => {
-          const sel = selected.has(lead.id);
-          const visC = (lead.aiVisibility||0)<15?'#ef4444':(lead.aiVisibility||0)<25?'#f59e0b':'#10b981';
-          const gapC = lead.compGap==='High'?'#ef4444':lead.compGap==='Medium'?'#f59e0b':'#10b981';
-          return (
-            <div key={lead.id} onClick={()=>openLead(lead)}
-              style={{display:'grid',gridTemplateColumns:'28px minmax(0,1.8fr) 110px 52px 72px 80px 80px minmax(0,1fr) 90px 100px 28px',gap:8,padding:'9px 14px',borderBottom:'1px solid rgba(48,54,61,0.4)',background:sel?'rgba(91,63,200,0.07)':'transparent',alignItems:'center',cursor:'pointer',transition:'background 0.1s'}}
-              onMouseEnter={e=>{if(!sel)e.currentTarget.style.background='rgba(255,255,255,0.025)';}}
-              onMouseLeave={e=>{if(!sel)e.currentTarget.style.background='transparent';}}>
-              <div onClick={e=>{e.stopPropagation();toggleSelect(lead.id);}}>
-                <input type="checkbox" checked={sel} onChange={()=>{}} style={{width:13,height:13,accentColor:'var(--p)',cursor:'pointer'}}/>
-              </div>
-              <div style={{minWidth:0}}>
-                <div style={{fontSize:12,fontWeight:600,color:'var(--t1)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{lead.business}</div>
-                <div style={{fontSize:10,color:'var(--t2)',fontFamily:'JetBrains Mono,monospace',marginTop:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{lead.email}</div>
-              </div>
-              <IntentBadge intent={lead.intent}/>
-              <ScoreRing score={lead.aiScore} size={34}/>
-              <div>
-                <div style={{fontSize:12,fontWeight:700,color:'var(--t1)'}}>{lead.reviews}</div>
-                <div style={{fontSize:10,color:'var(--t2)'}}>★ {lead.rating}</div>
-              </div>
-              <div style={{fontSize:11,fontWeight:600,color:visC}}>↓ {lead.aiVisibility||0}%</div>
-              <div style={{fontSize:11,fontWeight:600,color:gapC}}>{lead.compGap}</div>
-              <div style={{fontSize:11,color:'var(--t1)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{lead.nextAction}</div>
-              <div style={{fontSize:10,color:'var(--t2)',display:'flex',alignItems:'center',gap:3}}><Ico name="clock" size={9}/> {lead.lastTouch}</div>
-              <StageBadge stage={lead.stage}/>
-              <Ico name="chevRight" size={13} style={{color:'var(--t2)'}}/>
-            </div>
-          );
-        })}
-
-        {/* Footer */}
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 14px',borderTop:'1px solid var(--b1)',background:'rgba(0,0,0,0.15)'}}>
-          <span style={{fontSize:11,color:'var(--t2)'}}>{filtered.length} leads</span>
-          <span style={{fontSize:10,color:'var(--t3)'}}>Sorted by AI Score ↓</span>
-        </div>
-      </div>
-    </div>
-  );
+// ═══ LEAD PAGE ═══
+function LeadPage(){
+const{activeLead,closeLead,updateLead,openCopilot,addActivity,addMemory,removeMemory}=useApp();const{T1,T2,B1,S1,BG}=useTheme();const[tab,setTab]=useState('overview');
+if(!activeLead)return null;const lead=activeLead;const initials=lead.business.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+const bm=getBM(lead.intent);const intel=lead.intelligence||{};
+return(<div className="fade-up" style={{display:'flex',flexDirection:'column',gap:0}}>
+<div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}><button onClick={closeLead} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:7,border:`1px solid ${B1}`,background:'transparent',color:T2,cursor:'pointer',fontSize:12,fontFamily:'inherit'}}><Ico name="arrowLeft" size={13}/> Back</button><Ico name="chevRight" size={12} color="var(--t3)"/><span style={{fontSize:12,color:T1,fontWeight:500}}>{lead.business}</span></div>
+<div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:'18px 24px',marginBottom:12}}>
+<div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,flexWrap:'wrap'}}>
+<div style={{display:'flex',alignItems:'flex-start',gap:14}}><div style={{width:48,height:48,borderRadius:12,flexShrink:0,background:'linear-gradient(135deg,var(--p),#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:700,color:'#fff',boxShadow:'0 4px 14px rgba(91,63,200,0.3)'}}>{initials}</div><div><div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}><h1 style={{fontSize:20,fontWeight:700,color:T1,margin:0}}>{lead.business}</h1><StageBadge stage={lead.stage}/></div>{lead.contact&&<div style={{fontSize:12,color:T2,marginBottom:5}}>{lead.contact}</div>}<div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>{lead.phone&&<span style={{fontSize:11,color:T2}}><Ico name="phone" size={10}/> {lead.phone}</span>}{lead.email&&<span style={{fontSize:11,color:T2}}><Ico name="mail" size={10}/> {lead.email}</span>}{lead.city&&<span style={{fontSize:11,color:T2}}><Ico name="mapPin" size={10}/> {lead.city}</span>}</div></div></div>
+<div style={{display:'flex',gap:12,alignItems:'center'}}><div style={{textAlign:'center'}}><div style={{fontSize:9,color:T2,textTransform:'uppercase',marginBottom:4}}>AI Score</div><ScoreRing score={lead.aiScore} size={44}/></div><div style={{textAlign:'center'}}><div style={{fontSize:9,color:T2,textTransform:'uppercase',marginBottom:4}}>Reviews</div><div style={{fontSize:20,fontWeight:700,color:T1,fontFamily:'JetBrains Mono,monospace'}}>{lead.reviews}</div></div><div style={{textAlign:'center'}}><div style={{fontSize:9,color:T2,textTransform:'uppercase',marginBottom:4}}>AI Vis.</div><div style={{fontSize:20,fontWeight:700,color:(lead.aiVisibility||0)<15?'#ef4444':(lead.aiVisibility||0)<25?'#f59e0b':'#10b981',fontFamily:'JetBrains Mono,monospace'}}>{lead.aiVisibility||0}%</div></div></div>
+</div>
+<div style={{display:'flex',gap:3,flexWrap:'wrap',marginTop:10}}>{STAGES.map(s=>{const active=lead.stage===s;const st=STAGE_STYLE[s];return<button key={s} onClick={()=>updateLead(lead.id,{stage:s})} style={{fontSize:10,fontWeight:600,padding:'2px 8px',borderRadius:99,border:active?`1px solid ${st.border}`:`1px solid ${B1}`,background:active?st.bg:'transparent',color:active?st.color:T2,cursor:'pointer',fontFamily:'inherit'}}>{s}</button>;})}</div>
+</div>
+{/* Tabs */}
+<div style={{display:'flex',overflowX:'auto',borderBottom:`1px solid ${B1}`,background:S1,borderRadius:'12px 12px 0 0',padding:'0 4px'}}>{[{id:'overview',label:'Overview'},{id:'ae_notes',label:'AE Notes'},{id:'intelligence',label:'Intelligence'},{id:'timeline',label:'Timeline'},{id:'memory',label:'Memory'}].map(t=>{const active=tab===t.id;return<button key={t.id} onClick={()=>setTab(t.id)} style={{padding:'11px 14px',border:'none',background:'transparent',borderBottom:active?'2px solid var(--p)':'2px solid transparent',color:active?'var(--p-glow)':T2,fontSize:11,fontWeight:active?600:400,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap',marginBottom:-1}}>{t.label}</button>;})}</div>
+<div style={{background:S1,border:`1px solid ${B1}`,borderTop:'none',borderRadius:'0 0 12px 12px',padding:20,minHeight:300}}>
+{tab==='overview'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr 240px',gap:14}}>
+<Card><div style={{fontSize:10,fontWeight:700,color:T2,textTransform:'uppercase',marginBottom:10}}>AI Summary</div><p style={{fontSize:12,color:T1,lineHeight:1.8,margin:'0 0 10px'}}>{intel.summary||`${lead.business} — ${lead.intent} lead in ${lead.city||'your area'}. AI Score: ${lead.aiScore}.`}</p><div style={{fontSize:10,fontWeight:700,color:T2,textTransform:'uppercase',marginBottom:4}}>Next Best Action</div><p style={{fontSize:12,color:'var(--p-glow)',fontWeight:500,margin:0}}>{intel.nextBestAction||lead.nextAction||'—'}</p></Card>
+<div style={{background:S1,border:'1px solid rgba(91,63,200,0.25)',borderRadius:12,padding:14}}><div style={{fontSize:10,fontWeight:700,color:T2,textTransform:'uppercase',marginBottom:10}}>Birdeye Match</div><div style={{display:'flex',flexDirection:'column',gap:6}}><div style={{display:'flex',gap:8}}><span style={{fontSize:11,fontWeight:600,color:T2,width:70}}>Product:</span><span style={{fontSize:11,color:T1}}>{bm.product}</span></div><div style={{display:'flex',gap:8}}><span style={{fontSize:11,fontWeight:600,color:T2,width:70}}>Stat:</span><span style={{fontSize:11,color:'#10b981',fontWeight:500}}>{bm.stat}</span></div></div></div>
+<Card><div style={{fontSize:10,fontWeight:700,color:T2,textTransform:'uppercase',marginBottom:10}}>Quick Actions</div><div style={{display:'flex',flexDirection:'column',gap:5}}>{[['sparkles','Generate Email'],['phone','Log Call'],['calendar','Follow Up'],['brain','AI Analysis']].map(([icon,label])=><button key={label} onClick={()=>openCopilot('email',lead)} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:7,border:`1px solid ${B1}`,background:'transparent',cursor:'pointer',color:T1,fontSize:11,fontFamily:'inherit',textAlign:'left'}}><Ico name={icon} size={12} color="var(--p-glow)"/>{label}</button>)}</div></Card>
+</div>}
+{tab==='ae_notes'&&<div><textarea value={lead.aeNotes||''} onChange={e=>updateLead(lead.id,{aeNotes:e.target.value})} rows={18} placeholder="Paste research: competitor counts, GMB URL, keywords…" style={{width:'100%',padding:14,borderRadius:10,border:`1px solid ${B1}`,background:BG,color:T1,fontSize:12,fontFamily:'JetBrains Mono,monospace',lineHeight:1.8,resize:'vertical',outline:'none'}}/></div>}
+{tab==='intelligence'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>{[['painPoints','Pain Points','#f87171'],['competitors','Competitors','#f59e0b'],['objections','Objections','#f472b6'],['buyingSignals','Buying Signals','#34d399']].map(([field,label,color])=>{const items=intel[field]||[];return<div key={field} style={{background:BG,border:`1px solid ${B1}`,borderRadius:10,padding:'12px 14px'}}><div style={{fontSize:10,fontWeight:600,color:T2,textTransform:'uppercase',marginBottom:8}}>{label}</div>{items.length===0?<span style={{fontSize:11,color:'var(--t3)',fontStyle:'italic'}}>None logged</span>:items.map((item,i)=><div key={i} style={{display:'flex',alignItems:'center',gap:7,marginBottom:4}}><div style={{width:5,height:5,borderRadius:'50%',background:color,flexShrink:0}}/><span style={{fontSize:12,color:T1}}>{item}</span></div>)}</div>;})}</div>}
+{tab==='timeline'&&<div>{(lead.activities||[]).length===0?<EmptyState icon="🕐" title="No timeline entries" sub="Log calls and emails to build history."/>:(lead.activities||[]).map((act,i)=><div key={act.activityId||i} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'10px 14px',background:BG,border:`1px solid ${B1}`,borderRadius:10,marginBottom:8}}><div style={{width:30,height:30,borderRadius:8,background:'rgba(91,63,200,0.1)',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}><Ico name={act.type==='Email'?'mail':act.type==='Call'?'phone':'sparkles'} size={14} color="var(--p-glow)"/></div><div style={{flex:1}}><div style={{fontSize:12,fontWeight:600,color:T1}}>{act.summary}</div>{act.details?.content&&<p style={{fontSize:11,color:T2,lineHeight:1.5,margin:'3px 0 0'}}>{act.details.content}</p>}</div><span style={{fontSize:10,color:T2,flexShrink:0}}>{new Date(act.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span></div>)}</div>}
+{tab==='memory'&&<div style={{display:'flex',flexDirection:'column',gap:10}}>{(lead.memory||[]).length===0?<EmptyState icon="🧠" title="No memory entries" sub="Add context above."/>:(lead.memory||[]).map(m=>{const TC={'Context':'#60a5fa','Pain Point':'#f472b6','Objection':'#f87171','Competitor':'#fcd34d','Win Signal':'#34d399','Decision Maker':'#7c5ce8'};const c=TC[m.tag]||'#60a5fa';return(<div key={m.id} style={{display:'flex',alignItems:'flex-start',gap:10,padding:'10px 14px',background:BG,border:`1px solid ${B1}`,borderRadius:10}}><Ico name="brain" size={13} color="var(--p-glow)" style={{flexShrink:0,marginTop:2}}/><div style={{flex:1}}><p style={{fontSize:12,color:T1,lineHeight:1.6,margin:0}}>{m.text}</p><div style={{display:'flex',gap:6,marginTop:5}}>{m.tag&&<span style={{fontSize:10,fontWeight:600,padding:'1px 7px',borderRadius:99,background:`${c}18`,color:c}}>{m.tag}</span>}<span style={{fontSize:10,color:T2}}>{m.date}</span></div></div><button onClick={()=>removeMemory(lead.id,m.id)} style={{padding:3,border:'none',background:'transparent',cursor:'pointer',color:T2,opacity:.5}}><Ico name="trash" size={12}/></button></div>);})}</div>}
+</div></div>);
 }
 
-// ═══════════════════════════════════════════════
-// LEAD DETAIL PAGE
-// ═══════════════════════════════════════════════
-function LeadPage() {
-  const { activeLead, closeLead, updateLead } = useApp();
-  if (!activeLead) return null;
-  const lead = activeLead;
-  const initials = lead.business.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-  const ss = STAGE_STYLE[lead.stage] || STAGE_STYLE['New'];
-
-  return (
-    <div className="fade-up" style={{display:'flex',flexDirection:'column',gap:14}}>
-      {/* Back */}
-      <div style={{display:'flex',alignItems:'center',gap:8}}>
-        <button onClick={closeLead} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 10px',borderRadius:7,border:'1px solid var(--b1)',background:'transparent',color:'var(--t2)',cursor:'pointer',fontSize:12,fontFamily:'inherit',transition:'all 0.15s'}}>
-          <Ico name="arrowLeft" size={13}/> Back
-        </button>
-        <Ico name="chevRight" size={12} style={{color:'var(--t3)'}}/>
-        <span style={{fontSize:12,color:'var(--t1)',fontWeight:500}}>{lead.business}</span>
-      </div>
-
-      {/* Header Card */}
-      <div style={{background:'var(--s1)',border:'1px solid var(--b1)',borderRadius:14,padding:'18px 24px'}}>
-        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:16,flexWrap:'wrap'}}>
-          <div style={{display:'flex',alignItems:'flex-start',gap:14}}>
-            <div style={{width:48,height:48,borderRadius:12,flexShrink:0,background:'linear-gradient(135deg,var(--p),#3b82f6)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:700,color:'#fff',boxShadow:'0 4px 14px rgba(91,63,200,0.3)'}}>{initials}</div>
-            <div>
-              <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',marginBottom:4}}>
-                <h1 style={{fontSize:20,fontWeight:700,color:'var(--t1)',margin:0}}>{lead.business}</h1>
-                <StageBadge stage={lead.stage}/>
-              </div>
-              {lead.contact && <div style={{fontSize:12,color:'var(--t2)',marginBottom:5}}>{lead.contact} · Owner</div>}
-              <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
-                {lead.phone && <span style={{fontSize:11,color:'var(--t2)',display:'flex',alignItems:'center',gap:4}}><Ico name="phone" size={10}/>{lead.phone}</span>}
-                {lead.email && <span style={{fontSize:11,color:'var(--t2)',display:'flex',alignItems:'center',gap:4}}><Ico name="mail" size={10}/>{lead.email}</span>}
-                {lead.city && <span style={{fontSize:11,color:'var(--t2)',display:'flex',alignItems:'center',gap:4}}><Ico name="mapPin" size={10}/>{lead.city}</span>}
-              </div>
-            </div>
-          </div>
-          <div style={{display:'flex',flexDirection:'column',gap:8,alignItems:'flex-end'}}>
-            <div style={{display:'flex',gap:12,alignItems:'center'}}>
-              <div style={{textAlign:'center'}}><div style={{fontSize:9,color:'var(--t2)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:4}}>AI Score</div><ScoreRing score={lead.aiScore} size={44}/></div>
-              <div style={{textAlign:'center'}}><div style={{fontSize:9,color:'var(--t2)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:4}}>Reviews</div><div style={{fontSize:20,fontWeight:700,color:'var(--t1)',fontFamily:'JetBrains Mono,monospace'}}>{lead.reviews}</div></div>
-              <div style={{textAlign:'center'}}><div style={{fontSize:9,color:'var(--t2)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:4}}>AI Visibility</div><div style={{fontSize:20,fontWeight:700,color:(lead.aiVisibility||0)<15?'#ef4444':(lead.aiVisibility||0)<25?'#f59e0b':'#10b981',fontFamily:'JetBrains Mono,monospace'}}>{lead.aiVisibility||0}%</div></div>
-            </div>
-            {/* Stage buttons */}
-            <div style={{display:'flex',gap:3,flexWrap:'wrap',justifyContent:'flex-end'}}>
-              {STAGES.map(s => {
-                const active = lead.stage === s;
-                const st = STAGE_STYLE[s] || STAGE_STYLE['New'];
-                return (
-                  <button key={s} onClick={()=>updateLead(lead.id,{stage:s})} style={{fontSize:10,fontWeight:600,padding:'2px 8px',borderRadius:99,border:active?`1px solid ${st.border}`:'1px solid var(--b1)',background:active?st.bg:'transparent',color:active?st.color:'var(--t2)',cursor:'pointer',fontFamily:'inherit',transition:'all 0.15s'}}>{s}</button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Overview Content */}
-      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 240px',gap:14}}>
-        {/* Left - Intent & AI Match */}
-        <div style={{background:'var(--s1)',border:'1px solid var(--b1)',borderRadius:12,padding:16}}>
-          <div style={{fontSize:10,fontWeight:700,color:'var(--t2)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:12}}>Lead Intelligence</div>
-          <div style={{display:'flex',flexDirection:'column',gap:8}}>
-            <div style={{display:'flex',gap:8}}><span style={{fontSize:11,fontWeight:600,color:'var(--t2)',width:80,flexShrink:0}}>Industry:</span><span style={{fontSize:11,color:'var(--t1)'}}>{lead.industry}</span></div>
-            <div style={{display:'flex',gap:8}}><span style={{fontSize:11,fontWeight:600,color:'var(--t2)',width:80,flexShrink:0}}>Intent:</span><IntentBadge intent={lead.intent}/></div>
-            <div style={{display:'flex',gap:8}}><span style={{fontSize:11,fontWeight:600,color:'var(--t2)',width:80,flexShrink:0}}>Comp. Gap:</span><span style={{fontSize:11,fontWeight:600,color:lead.compGap==='High'?'#ef4444':lead.compGap==='Medium'?'#f59e0b':'#10b981'}}>{lead.compGap}</span></div>
-            <div style={{display:'flex',gap:8}}><span style={{fontSize:11,fontWeight:600,color:'var(--t2)',width:80,flexShrink:0}}>Cadence:</span><span style={{fontSize:11,color:'var(--t1)'}}>Day {lead.cadenceDay} of {lead.cadenceTotal}</span></div>
-            <div style={{display:'flex',gap:8}}><span style={{fontSize:11,fontWeight:600,color:'var(--t2)',width:80,flexShrink:0}}>Next Action:</span><span style={{fontSize:11,color:'var(--p-glow)',fontWeight:500}}>{lead.nextAction}</span></div>
-          </div>
-        </div>
-
-        {/* Middle - Key Metrics */}
-        <div style={{background:'var(--s1)',border:'1px solid rgba(91,63,200,0.25)',borderRadius:12,padding:16}}>
-          <div style={{fontSize:10,fontWeight:700,color:'var(--t2)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:12}}>Birdeye Match</div>
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            <div style={{padding:'10px 12px',background:'rgba(91,63,200,0.06)',borderRadius:8,border:'1px solid rgba(91,63,200,0.15)'}}>
-              <div style={{fontSize:10,color:'var(--t2)',marginBottom:3}}>Recommended Product</div>
-              <div style={{fontSize:12,fontWeight:600,color:'var(--p-glow)'}}>{lead.intent === 'AI Visibility' ? 'Search AI + Listings AI' : lead.intent === 'Review Growth' ? 'Reviews AI' : lead.intent === 'Listings' ? 'Listings AI' : lead.intent === 'Local SEO' ? 'Listings AI + Search AI' : 'Competitors AI + Insights AI'}</div>
-            </div>
-            <div style={{padding:'10px 12px',background:'rgba(16,185,129,0.06)',borderRadius:8,border:'1px solid rgba(16,185,129,0.15)'}}>
-              <div style={{fontSize:10,color:'var(--t2)',marginBottom:3}}>Industry Proof</div>
-              <div style={{fontSize:12,fontWeight:600,color:'#10b981'}}>{lead.industry === 'Dental' ? '112% more reviews, 927% search views' : lead.industry === 'Med Spa' ? '80% more reviews, 540% search views' : '128% more reviews, 500%+ search views'}</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right - Quick Actions */}
-        <div style={{background:'var(--s1)',border:'1px solid var(--b1)',borderRadius:12,padding:16}}>
-          <div style={{fontSize:10,fontWeight:700,color:'var(--t2)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:10}}>Quick Actions</div>
-          <div style={{display:'flex',flexDirection:'column',gap:5}}>
-            {[['sparkles','Generate Email','var(--p-glow)'],['phone','Log Call','#10b981'],['calendar','Schedule Follow Up','#f59e0b'],['brain','AI Analysis','#3b82f6']].map(([icon, label, color]) => (
-              <button key={label} style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',borderRadius:7,border:'1px solid var(--b1)',background:'transparent',cursor:'pointer',color:'var(--t1)',fontSize:11,fontFamily:'inherit',transition:'all 0.12s',textAlign:'left'}}>
-                <Ico name={icon} size={12} style={{color}}/>{label}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+// ═══ AI COPILOT MODAL ═══
+function CopilotModal(){
+const{copilotOpen,copilotMode,copilotLead,closeCopilot,activeLead,settings}=useApp();const{dark,T1,T2,B1,S1,BG}=useTheme();const[mode,setMode]=useState(null);const[output,setOutput]=useState('');const[copied,setCopied]=useState(false);
+const lead=copilotLead||activeLead||null;
+const MODES=[{id:'email',label:'Email',icon:'mail',desc:'3 email variations',color:'#7c5ce8'},{id:'sms',label:'SMS',icon:'phone',desc:'3 SMS messages',color:'#3b82f6'},{id:'voicemail',label:'Voicemail',icon:'mic',desc:'30-sec script',color:'#f59e0b'},{id:'linkedin',label:'LinkedIn',icon:'linkedin',desc:'Connection sequence',color:'#0a66c2'},{id:'situational',label:'Situational',icon:'brain',desc:'Best move now',color:'#ec4899'},{id:'cadence',label:'Cadence',icon:'zap',desc:'7-step sequence',color:'#7c5ce8'},{id:'notes',label:'AE Notes',icon:'fileText',desc:'Auto-generate notes',color:'#38bdf8'},{id:'objections',label:'Objections',icon:'target',desc:'Handle objections',color:'#10b981'}];
+useEffect(()=>{if(copilotOpen&&copilotMode){setMode(copilotMode);setOutput('');}else{setMode(null);setOutput('');}},[copilotOpen,copilotMode]);
+if(!copilotOpen)return null;
+const copyPrompt=()=>{navigator.clipboard.writeText(`Generate ${mode||'email'} for ${lead?.business||'lead'}`);setCopied(true);setTimeout(()=>setCopied(false),2000);};
+return(<>
+<div onClick={closeCopilot} style={{position:'fixed',inset:0,zIndex:99,background:'rgba(0,0,0,0.6)',backdropFilter:'blur(4px)'}}/>
+<div style={{position:'fixed',top:'50%',left:'50%',transform:'translate(-50%,-50%)',width:580,maxHeight:'88vh',zIndex:100,borderRadius:16,background:S1,border:`1px solid ${B1}`,boxShadow:'0 24px 64px rgba(0,0,0,0.55)',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+<div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'16px 20px',borderBottom:`1px solid ${B1}`,flexShrink:0}}><div style={{display:'flex',alignItems:'center',gap:10}}><div style={{width:36,height:36,borderRadius:10,background:'var(--p)',display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 4px 12px rgba(91,63,200,0.4)'}}><Ico name="sparkles" size={17} color="#fff"/></div><div><div style={{fontSize:14,fontWeight:700,color:T1}}>Birdeye AI Copilot</div><div style={{fontSize:11,color:T2,marginTop:1}}>{mode?`${MODES.find(m=>m.id===mode)?.label||mode} — ${lead?lead.business:'No lead'}`:'Select a mode'}</div></div></div><button onClick={closeCopilot} style={{padding:5,border:'none',background:'transparent',cursor:'pointer',color:T2,display:'flex'}}><Ico name="x" size={15}/></button></div>
+<div style={{flex:1,overflowY:'auto',padding:'16px 20px'}}>
+{!mode?<div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:8}}>{MODES.map(m=><button key={m.id} onClick={()=>setMode(m.id)} style={{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:7,padding:12,borderRadius:10,border:`1px solid ${B1}`,background:dark?'rgba(255,255,255,0.02)':'rgba(0,0,0,0.02)',cursor:'pointer',textAlign:'left',fontFamily:'inherit',transition:'all 0.15s'}}><div style={{width:28,height:28,borderRadius:7,background:`${m.color}20`,display:'flex',alignItems:'center',justifyContent:'center'}}><Ico name={m.icon} size={14} color={m.color}/></div><div><div style={{fontSize:12,fontWeight:600,color:T1}}>{m.label}</div><div style={{fontSize:10,color:T2,marginTop:1}}>{m.desc}</div></div></button>)}</div>:
+<div style={{display:'flex',flexDirection:'column',gap:12}}>
+{lead&&<div style={{display:'flex',gap:10,padding:'10px 12px',borderRadius:9,background:'var(--p-soft)',border:'1px solid rgba(91,63,200,0.2)'}}><div style={{flex:1}}><div style={{fontSize:11,fontWeight:700,color:'var(--p-glow)',marginBottom:4}}>Lead context loaded:</div><div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'2px 16px'}}>{[['Intent',lead.intent],['Score',lead.aiScore],['Reviews',lead.reviews],['Stage',lead.stage]].map(([k,v])=><div key={k} style={{display:'flex',gap:4}}><span style={{fontSize:10,color:T2}}>{k}:</span><span style={{fontSize:10,color:T1,fontWeight:500}}>{v}</span></div>)}</div></div></div>}
+<div style={{display:'flex',gap:8}}><Btn onClick={copyPrompt}><Ico name="copy" size={12}/>{copied?'Copied!':'Copy Prompt'}</Btn><Btn variant="ghost" onClick={()=>window.open('https://claude.ai','_blank')}><Ico name="externalLink" size={12}/>Open Claude.ai</Btn></div>
+<div><div style={{fontSize:11,fontWeight:600,color:T2,marginBottom:5}}>Paste AI response here:</div><textarea value={output} onChange={e=>setOutput(e.target.value)} rows={10} placeholder="Copy prompt → paste in Claude.ai → copy response → paste here…" style={{width:'100%',padding:'10px 12px',borderRadius:9,border:`1px solid ${B1}`,background:BG,color:T1,fontSize:12,fontFamily:'inherit',lineHeight:1.7,resize:'vertical',outline:'none'}}/></div>
+</div>}
+</div>
+<div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 20px',borderTop:`1px solid ${B1}`,flexShrink:0,background:dark?'rgba(0,0,0,0.2)':'rgba(0,0,0,0.02)'}}><button onClick={()=>{if(mode)setMode(null);else closeCopilot();}} style={{padding:'7px 14px',borderRadius:8,border:`1px solid ${B1}`,background:'transparent',color:T2,fontSize:12,cursor:'pointer',fontFamily:'inherit'}}>{mode?'← Back':'Cancel'}</button>{output&&<Btn onClick={closeCopilot}><Ico name="save" size={13}/>Done</Btn>}</div>
+</div>
+</>);
 }
 
-// ═══════════════════════════════════════════════
-// APP SHELL & RENDER
-// ═══════════════════════════════════════════════
-function AppShell() {
-  const { view, activeLead, sidebarOpen, theme } = useApp();
-  const dark = theme === 'dark';
-  const sw = sidebarOpen ? 240 : 56;
-
-  return (
-    <div style={{minHeight:'100vh',background:'var(--bg)',color:'var(--t1)',fontFamily:'Inter,system-ui,sans-serif'}}>
-      <Sidebar/>
-      <TopBar sw={sw}/>
-      <main style={{marginLeft:sw,paddingTop:56,transition:'margin-left 0.2s ease'}}>
-        <div style={{padding:'24px 22px',maxWidth:1260,margin:'0 auto'}}>
-          {activeLead ? <LeadPage/> : <WorkQueue/>}
-        </div>
-      </main>
-    </div>
-  );
+// ═══ APP SHELL ═══
+const VIEW_MAP={dashboard:Dashboard,workqueue:WorkQueue,leads:MyLeads,hot:HotLeads,followups:FollowUps,demobooked:DemoBooked,reengage:ReEngage,pipeline:Pipeline,reports:Reports,cadences:Cadences,memory:AIMemory,settings:Settings,newlead:NewLead};
+function AppShell(){
+const{view,activeLead,sidebarOpen}=useApp();const{dark}=useTheme();const sw=sidebarOpen?240:56;const fullWidth=['pipeline','cadences'].includes(view);
+useEffect(()=>{document.documentElement.className=dark?'dark':'light';},[dark]);
+const ViewComp=VIEW_MAP[view]||Dashboard;
+return(<div style={{minHeight:'100vh',background:'var(--bg)',color:'var(--t1)',fontFamily:'Inter,system-ui,sans-serif'}}><Sidebar/><TopBar sw={sw}/><main style={{marginLeft:sw,paddingTop:56,transition:'margin-left 0.2s ease'}}><div style={{padding:fullWidth?'18px 14px':'24px 22px',maxWidth:fullWidth?'100%':1260,margin:'0 auto'}}>{activeLead?<LeadPage/>:<ViewComp/>}</div></main><CopilotModal/></div>);
 }
-
-function App() {
-  return <AppProvider><AppShell/></AppProvider>;
-}
-
+function App(){return<AppProvider><AppShell/></AppProvider>;}
 ReactDOM.createRoot(document.getElementById('root')).render(<React.StrictMode><App/></React.StrictMode>);
 </script>
 </body>
