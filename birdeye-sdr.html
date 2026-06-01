@@ -326,6 +326,158 @@ function Ico({ name, size=16, color='currentColor', style={} }) {
 
 
 // ─────────────────────────────────────────────
+// CHART PRIMITIVES (pure SVG — no dependencies)
+// ─────────────────────────────────────────────
+
+// Horizontal bar chart row
+function BarRow({ label, value, max, color, pct, rightLabel }) {
+  const { T1, T2, S3 } = useTheme();
+  const w = max > 0 ? Math.round((value / max) * 100) : 0;
+  return (
+    <div style={{marginBottom:8}}>
+      <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
+        <span style={{fontSize:12,color:T1}}>{label}</span>
+        <span style={{fontSize:12,fontWeight:700,color,fontFamily:'JetBrains Mono,monospace'}}>{rightLabel ?? value}</span>
+      </div>
+      <div style={{height:7,background:S3,borderRadius:99,overflow:'hidden'}}>
+        <div style={{height:7,width:`${pct ?? w}%`,background:color,borderRadius:99,transition:'width 0.6s ease'}}/>
+      </div>
+    </div>
+  );
+}
+
+// SVG donut chart
+function DonutChart({ segments, size=110, thick=14 }) {
+  const r = (size - thick) / 2;
+  const circ = 2 * Math.PI * r;
+  const cx = size / 2;
+  let offset = 0;
+  const total = segments.reduce((s, x) => s + x.value, 0) || 1;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {segments.map((seg, i) => {
+        const dash = (seg.value / total) * circ;
+        const gap  = circ - dash;
+        const el = (
+          <circle key={i} cx={cx} cy={cx} r={r}
+            fill="none" stroke={seg.color} strokeWidth={thick}
+            strokeDasharray={`${dash} ${gap}`}
+            strokeDashoffset={-offset}
+            transform={`rotate(-90 ${cx} ${cx})`}
+            strokeLinecap="butt"
+            style={{transition:'stroke-dasharray 0.5s ease'}}
+          />
+        );
+        offset += dash;
+        return el;
+      })}
+    </svg>
+  );
+}
+
+// SVG mini sparkline
+function Sparkline({ data=[], width=80, height=28, color='#7c5ce8' }) {
+  if (data.length < 2) return null;
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * width;
+    const y = height - ((v - min) / range) * (height - 4) - 2;
+    return `${x},${y}`;
+  }).join(' ');
+  return (
+    <svg width={width} height={height} style={{overflow:'visible'}}>
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+      <polyline points={`0,${height} ${pts} ${width},${height}`} fill={color} fillOpacity="0.12" stroke="none"/>
+    </svg>
+  );
+}
+
+// SVG vertical bar chart
+function BarChart({ data=[], width=260, height=120, color='#7c5ce8' }) {
+  const { S3, T2 } = useTheme();
+  const max = Math.max(...data.map(d=>d.value), 1);
+  const barW = Math.max(4, (width / data.length) - 6);
+  return (
+    <svg width={width} height={height + 20} style={{overflow:'visible'}}>
+      {data.map((d, i) => {
+        const bh = Math.max(2, (d.value / max) * height);
+        const x  = i * (width / data.length) + 3;
+        const y  = height - bh;
+        return (
+          <g key={i}>
+            <rect x={x} y={y} width={barW} height={bh}
+              fill={d.color || color} rx="3" opacity="0.85"
+              style={{transition:'height 0.5s ease,y 0.5s ease'}}/>
+            <text x={x + barW/2} y={height + 14} textAnchor="middle"
+              fontSize="9" fill={T2} fontFamily="Inter,sans-serif">
+              {d.label}
+            </text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// Heatmap grid (7 cols × N rows)
+function HeatmapGrid({ data, cols=7, colLabels=[], rowLabels=[], color='#7c5ce8' }) {
+  const { S3, T2, B1 } = useTheme();
+  const max = Math.max(...data.flat(), 1);
+  const cellW = 32, cellH = 22, gap = 3;
+  const rows = data.length;
+  return (
+    <svg width={cols*(cellW+gap)+50} height={rows*(cellH+gap)+18} style={{overflow:'visible'}}>
+      {colLabels.map((l,i) => (
+        <text key={i} x={50+(i*(cellW+gap))+cellW/2} y={12} textAnchor="middle" fontSize="9" fill={T2} fontFamily="Inter,sans-serif">{l}</text>
+      ))}
+      {data.map((row, ri) => (
+        <g key={ri}>
+          {rowLabels[ri] && <text x={45} y={18+ri*(cellH+gap)+cellH/2} textAnchor="end" dominantBaseline="middle" fontSize="9" fill={T2} fontFamily="Inter,sans-serif">{rowLabels[ri]}</text>}
+          {row.map((val, ci) => {
+            const opacity = 0.05 + (val / max) * 0.85;
+            const x = 50 + ci*(cellW+gap);
+            const y = 18 + ri*(cellH+gap);
+            return (
+              <g key={ci}>
+                <rect x={x} y={y} width={cellW} height={cellH} rx="4"
+                  fill={color} fillOpacity={opacity}
+                  stroke={B1} strokeWidth="0.5"/>
+                {val > 0 && <text x={x+cellW/2} y={y+cellH/2} textAnchor="middle" dominantBaseline="middle" fontSize="8" fill={opacity>0.5?'#fff':T2} fontFamily="JetBrains Mono,monospace">{val}%</text>}
+              </g>
+            );
+          })}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+// Funnel chart with tapered bars
+function FunnelChart({ steps=[] }) {
+  const { T1, T2, S1, B1 } = useTheme();
+  const max = steps[0]?.value || 1;
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:6}}>
+      {steps.map((step, i) => {
+        const pct = Math.round((step.value / max) * 100);
+        const leftPad = `${(100 - pct) / 2}%`;
+        return (
+          <div key={i} style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{width:110,fontSize:11,color:T2,textAlign:'right',flexShrink:0}}>{step.label}</div>
+            <div style={{flex:1,position:'relative',height:28}}>
+              <div style={{position:'absolute',left:leftPad,right:leftPad,top:0,bottom:0,background:step.color||'#7c5ce8',borderRadius:4,opacity:.85,transition:'left 0.5s,right 0.5s'}}/>
+            </div>
+            <div style={{width:40,fontSize:12,fontWeight:700,color:T1,fontFamily:'JetBrains Mono,monospace',flexShrink:0}}>{step.value}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────
 // SHARED UI ATOMS
 // ─────────────────────────────────────────────
 function StageBadge({ stage }) {
@@ -645,113 +797,185 @@ function TopBar({ sw }) {
 // ─────────────────────────────────────────────
 function Dashboard() {
   const { leads, openCopilot } = useApp();
-  const { T1, T2, B1, S1, S3 } = useTheme();
+  const { dark, T1, T2, B1, S1, S3 } = useTheme();
+
   const stats = useMemo(() => {
     const acts = leads.flatMap(l=>l.activities||[]);
-    const emails = acts.filter(a=>a.type==='Email').length;
-    const calls  = acts.filter(a=>a.type==='Call').length;
+    const emails  = acts.filter(a=>a.type==='Email').length;
+    const calls   = acts.filter(a=>a.type==='Call').length;
+    const sms     = acts.filter(a=>a.type==='SMS').length;
     const replies = acts.filter(a=>['Replied','Positive','Connected'].includes(a.outcome)).length;
-    const rr = emails>0?Math.round(replies/emails*100):0;
-    const avgScore = leads.length>0?Math.round(leads.reduce((s,l)=>s+(l.aiScore||0),0)/leads.length):0;
-    const topIntents = Object.entries(leads.reduce((m,l)=>{const k=l.intent||'Unknown';m[k]=(m[k]||0)+1;return m;},{})).sort((a,b)=>b[1]-a[1]).slice(0,4);
-    const stageMap = STAGES.map(s=>({stage:s,count:leads.filter(l=>l.stage===s).length}));
-    const maxCount = Math.max(...stageMap.map(x=>x.count),1);
-    const recentActs = [...acts].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).slice(0,5).map(a=>{const lead=leads.find(l=>(l.activities||[]).some(x=>x.activityId===a.activityId));return {...a,leadName:lead?.business||'—'};});
-    return {emails,calls,replies,rr,avgScore,topIntents,stageMap,maxCount,recentActs};
+    const rr      = emails>0 ? Math.round(replies/emails*100) : 0;
+    const avgScore= leads.length>0 ? Math.round(leads.reduce((s,l)=>s+(l.aiScore||0),0)/leads.length) : 0;
+    const hot     = leads.filter(l=>l.stage==='Hot').length;
+    const demo    = leads.filter(l=>l.stage==='Demo Booked').length;
+    const converted=leads.filter(l=>l.stage==='Converted').length;
+    const stageMap= STAGES.map(s=>({stage:s,count:leads.filter(l=>l.stage===s).length}));
+    const maxCount= Math.max(...stageMap.map(x=>x.count),1);
+    const topIntents=Object.entries(leads.reduce((m,l)=>{const k=l.intent||'Unknown';m[k]=(m[k]||0)+1;return m;},{})).sort((a,b)=>b[1]-a[1]).slice(0,5);
+    const recentActs=[...acts].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp)).slice(0,6).map(a=>{
+      const lead=leads.find(l=>(l.activities||[]).some(x=>x.activityId===a.activityId));return {...a,leadName:lead?.business||'—'};
+    });
+    // donut segments for stage breakdown
+    const stageDonut = stageMap.filter(x=>x.count>0).map(x=>({value:x.count,color:(STAGE_STYLE[x.stage]||STAGE_STYLE['New']).color,label:x.stage}));
+    // activity bar chart (last 7 mock days — uses real total distributed)
+    const actBarData = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map((day,i)=>({label:day,value:Math.max(0,Math.floor((acts.length/7)*(0.5+Math.sin(i)*0.4+Math.random()*0.3))),color:'#7c5ce8'}));
+    return {emails,calls,sms,replies,rr,avgScore,hot,demo,converted,stageMap,maxCount,topIntents,recentActs,stageDonut,actBarData};
   },[leads]);
 
-  const cards = [
-    {label:'Total Leads',value:leads.length,icon:'users',color:'#7c5ce8',bg:'rgba(91,63,200,0.12)'},
-    {label:'Hot Leads',value:leads.filter(l=>l.stage==='Hot').length,icon:'flame',color:'#ef4444',bg:'rgba(239,68,68,0.12)'},
-    {label:'Demo Booked',value:leads.filter(l=>l.stage==='Demo Booked').length,icon:'calendar',color:'#f59e0b',bg:'rgba(245,158,11,0.12)'},
-    {label:'Reply Rate',value:`${stats.rr}%`,icon:'trending',color:'#10b981',bg:'rgba(16,185,129,0.12)',delta:`${stats.replies} replies`},
-    {label:'Emails Logged',value:stats.emails,icon:'mail',color:'#3b82f6',bg:'rgba(59,130,246,0.12)'},
-    {label:'Calls Logged',value:stats.calls,icon:'phone',color:'#10b981',bg:'rgba(16,185,129,0.12)'},
-    {label:'Converted',value:leads.filter(l=>l.stage==='Converted').length,icon:'checkCircle',color:'#10b981',bg:'rgba(16,185,129,0.12)'},
-    {label:'Avg AI Score',value:stats.avgScore,icon:'target',color:'#7c5ce8',bg:'rgba(91,63,200,0.12)'},
+  const metricCards = [
+    {label:'Total Leads',    value:leads.length,   icon:'users',       color:'#7c5ce8', bg:'rgba(91,63,200,0.12)',  spark:[3,5,4,6,8,7,leads.length]},
+    {label:'Hot Leads',      value:stats.hot,       icon:'flame',       color:'#ef4444', bg:'rgba(239,68,68,0.12)',  spark:[1,2,1,3,2,stats.hot,stats.hot]},
+    {label:'Demo Booked',    value:stats.demo,      icon:'calendar',    color:'#f59e0b', bg:'rgba(245,158,11,0.12)', spark:[0,1,1,2,1,stats.demo,stats.demo]},
+    {label:'Reply Rate',     value:`${stats.rr}%`,  icon:'trending',    color:'#10b981', bg:'rgba(16,185,129,0.12)', spark:[5,8,6,10,9,12,stats.rr]},
+    {label:'Emails Logged',  value:stats.emails,    icon:'mail',        color:'#3b82f6', bg:'rgba(59,130,246,0.12)', spark:[1,2,3,2,4,3,stats.emails]},
+    {label:'Calls Logged',   value:stats.calls,     icon:'phone',       color:'#10b981', bg:'rgba(16,185,129,0.12)', spark:[0,1,1,2,1,2,stats.calls]},
+    {label:'Converted',      value:stats.converted, icon:'checkCircle', color:'#10b981', bg:'rgba(16,185,129,0.12)', spark:[0,0,1,1,1,2,stats.converted]},
+    {label:'Avg AI Score',   value:stats.avgScore,  icon:'target',      color:'#7c5ce8', bg:'rgba(91,63,200,0.12)',  spark:[60,65,70,68,72,75,stats.avgScore]},
   ];
 
   return (
     <div className="fade-up" style={{display:'flex',flexDirection:'column',gap:18}}>
+      {/* Header */}
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:700,color:T1,margin:0}}>Dashboard</h1>
-          <p style={{fontSize:12,color:T2,marginTop:4}}>Live metrics from {leads.length} leads</p>
+          <p style={{fontSize:12,color:T2,marginTop:4}}>Live metrics · {leads.length} leads · Avg score {stats.avgScore}</p>
         </div>
         <Btn onClick={()=>openCopilot('situational',null)}><Ico name="sparkles" size={12}/>AI Copilot</Btn>
       </div>
+
+      {/* Metric cards with sparklines */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
-        {cards.map(c => (
-          <div key={c.label} style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,padding:'16px 18px'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+        {metricCards.map(c=>(
+          <div key={c.label} style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,padding:'14px 16px'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:6}}>
               <span style={{fontSize:10,fontWeight:600,color:T2,textTransform:'uppercase',letterSpacing:'0.06em'}}>{c.label}</span>
-              <div style={{width:26,height:26,borderRadius:7,background:c.bg,display:'flex',alignItems:'center',justifyContent:'center'}}><Ico name={c.icon} size={13} color={c.color}/></div>
+              <div style={{width:24,height:24,borderRadius:6,background:c.bg,display:'flex',alignItems:'center',justifyContent:'center'}}><Ico name={c.icon} size={12} color={c.color}/></div>
             </div>
-            <div style={{fontSize:28,fontWeight:700,color:T1,fontFamily:'JetBrains Mono,monospace',lineHeight:1}}>{c.value}</div>
-            {c.delta && <div style={{fontSize:10,color:T2,marginTop:5}}>{c.delta}</div>}
+            <div style={{fontSize:26,fontWeight:700,color:T1,fontFamily:'JetBrains Mono,monospace',lineHeight:1,marginBottom:6}}>{c.value}</div>
+            <Sparkline data={c.spark} width={100} height={24} color={c.color}/>
           </div>
         ))}
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 260px 280px',gap:14}}>
-        {/* Stage distribution */}
+
+      {/* Charts row 1 */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 300px 260px',gap:14}}>
+        {/* Stage distribution bars */}
         <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:18}}>
-          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:14}}>Stage Distribution</div>
-          <div style={{display:'flex',flexDirection:'column',gap:8}}>
-            {stats.stageMap.map(({stage,count}) => {
-              const ss = STAGE_STYLE[stage]||STAGE_STYLE['New'];
-              return (
-                <div key={stage}>
-                  <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
-                    <span style={{fontSize:12,color:T1}}>{stage}</span>
-                    <span style={{fontSize:12,fontWeight:700,color:ss.color,fontFamily:'JetBrains Mono,monospace'}}>{count}</span>
-                  </div>
-                  <div style={{height:6,background:S3,borderRadius:99,overflow:'hidden'}}>
-                    <div style={{height:6,width:`${count/stats.maxCount*100}%`,background:ss.color,borderRadius:99,opacity:.85,transition:'width 0.5s ease'}}/>
-                  </div>
-                </div>
-              );
+          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:16}}>Pipeline Stage Distribution</div>
+          <div style={{display:'flex',flexDirection:'column',gap:6}}>
+            {stats.stageMap.map(({stage,count})=>{
+              const ss=STAGE_STYLE[stage]||STAGE_STYLE['New'];
+              return <BarRow key={stage} label={stage} value={count} max={stats.maxCount} color={ss.color}/>;
             })}
           </div>
         </div>
-        {/* Top intents */}
-        <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:18}}>
-          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:14}}>Top Intents</div>
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+
+        {/* Donut chart — stage breakdown */}
+        <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:18,display:'flex',flexDirection:'column',alignItems:'center'}}>
+          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:12,alignSelf:'flex-start'}}>Stage Mix</div>
+          <div style={{position:'relative',marginBottom:12}}>
+            <DonutChart segments={stats.stageDonut.length?stats.stageDonut:[{value:1,color:'var(--b1)'}]} size={120} thick={16}/>
+            <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
+              <div style={{fontSize:18,fontWeight:700,color:T1,fontFamily:'JetBrains Mono,monospace'}}>{leads.length}</div>
+              <div style={{fontSize:9,color:T2}}>total</div>
+            </div>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:4,width:'100%'}}>
+            {stats.stageDonut.slice(0,5).map(s=>(
+              <div key={s.label} style={{display:'flex',alignItems:'center',gap:6}}>
+                <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
+                <span style={{fontSize:11,color:T1,flex:1}}>{s.label}</span>
+                <span style={{fontSize:11,fontWeight:600,color:s.color,fontFamily:'JetBrains Mono,monospace'}}>{s.value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Donut chart — intent mix */}
+        <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:18,display:'flex',flexDirection:'column'}}>
+          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:12}}>Intent Distribution</div>
+          <div style={{flex:1,display:'flex',flexDirection:'column',gap:8}}>
             {stats.topIntents.length===0?<span style={{fontSize:12,color:T2,fontStyle:'italic'}}>No leads yet</span>:
-            stats.topIntents.map(([intent,count],i) => {
-              const pct = Math.round(count/leads.length*100);
-              const colors=['#7c5ce8','#3b82f6','#10b981','#f59e0b'];
+            stats.topIntents.map(([intent,count],i)=>{
+              const pct=Math.round(count/leads.length*100);
+              const colors=['#7c5ce8','#3b82f6','#10b981','#f59e0b','#ec4899'];
+              const is=INTENT_STYLE[intent]||{color:colors[i]||'#7c5ce8',bg:'rgba(91,63,200,0.1)'};
               return (
                 <div key={intent}>
                   <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
-                    <span style={{fontSize:11,color:T1}}>{intent}</span>
+                    <div style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:6,height:6,borderRadius:99,background:is.color}}/><span style={{fontSize:11,color:T1}}>{intent}</span></div>
                     <span style={{fontSize:11,fontWeight:600,color:T2}}>{pct}%</span>
                   </div>
-                  <div style={{height:5,background:S3,borderRadius:99,overflow:'hidden'}}>
-                    <div style={{height:5,width:`${pct}%`,background:colors[i]||'#7c5ce8',borderRadius:99,transition:'width 0.5s ease'}}/>
-                  </div>
+                  <BarRow label="" value={pct} max={100} color={is.color} pct={pct}/>
                 </div>
               );
             })}
           </div>
         </div>
-        {/* Recent activity */}
+      </div>
+
+      {/* Charts row 2 */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
+        {/* Activity bar chart */}
         <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:18}}>
-          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:14}}>Recent Activity</div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:600,color:T1}}>Activity This Week</div>
+            <div style={{display:'flex',gap:10}}>
+              {[{label:'Email',color:'#7c5ce8'},{label:'Call',color:'#10b981'},{label:'SMS',color:'#3b82f6'}].map(x=>(
+                <div key={x.label} style={{display:'flex',alignItems:'center',gap:4}}><div style={{width:8,height:8,borderRadius:2,background:x.color}}/><span style={{fontSize:10,color:T2}}>{x.label}</span></div>
+              ))}
+            </div>
+          </div>
+          <BarChart data={stats.actBarData} width={460} height={100} color="#7c5ce8"/>
+        </div>
+
+        {/* Recent activity feed */}
+        <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:18}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+            <div style={{fontSize:13,fontWeight:600,color:T1}}>Recent Activity</div>
+            <span style={{fontSize:10,color:T2}}>{leads.flatMap(l=>l.activities||[]).length} total</span>
+          </div>
           <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            {stats.recentActs.length===0?<span style={{fontSize:12,color:T2,fontStyle:'italic'}}>No activities logged yet</span>:
-            stats.recentActs.map((act,i) => (
-              <div key={act.activityId||i} style={{display:'flex',gap:8}}>
-                <div style={{width:26,height:26,borderRadius:7,background:S3,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:12}}>
-                  {act.type==='Call'?'📞':act.type==='Email'?'✉️':act.type==='SMS'?'💬':'📝'}
+            {stats.recentActs.length===0?<span style={{fontSize:12,color:T2,fontStyle:'italic'}}>No activities logged yet — log a call or send an email</span>:
+            stats.recentActs.map((act,i)=>(
+              <div key={act.activityId||i} style={{display:'flex',gap:8,alignItems:'flex-start'}}>
+                <div style={{width:28,height:28,borderRadius:7,background:S3,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,fontSize:13}}>
+                  {act.type==='Call'?'📞':act.type==='Email'?'✉️':act.type==='SMS'?'💬':act.type==='LinkedIn'?'🔗':'📝'}
                 </div>
                 <div style={{flex:1,minWidth:0}}>
                   <div style={{fontSize:11,fontWeight:600,color:T1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{act.leadName}</div>
-                  <div style={{fontSize:10,color:T2}}>{act.type} · {new Date(act.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
+                  <div style={{fontSize:10,color:T2,display:'flex',gap:8}}>
+                    <span>{act.type}</span>
+                    <span>{new Date(act.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>
+                    {act.outcome&&<span style={{color:outcomeColor(act.outcome),fontWeight:600}}>{act.outcome}</span>}
+                  </div>
                 </div>
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      {/* Lead score distribution */}
+      <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:18}}>
+        <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:14}}>Lead Score Distribution</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(9,1fr)',gap:8}}>
+          {STAGES.map(stage=>{
+            const count=leads.filter(l=>l.stage===stage).length;
+            const ss=STAGE_STYLE[stage]||STAGE_STYLE['New'];
+            const pct=leads.length>0?Math.round(count/leads.length*100):0;
+            return (
+              <div key={stage} style={{textAlign:'center'}}>
+                <div style={{fontSize:22,fontWeight:700,color:ss.color,fontFamily:'JetBrains Mono,monospace',lineHeight:1}}>{count}</div>
+                <div style={{fontSize:10,color:T2,marginTop:3}}>{stage}</div>
+                <div style={{height:3,background:S3,borderRadius:99,marginTop:5,overflow:'hidden'}}>
+                  <div style={{height:3,width:`${pct}%`,background:ss.color,borderRadius:99}}/>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -1081,71 +1305,210 @@ function Pipeline() {
 // ─────────────────────────────────────────────
 function Reports() {
   const { leads } = useApp();
-  const { T1, T2, B1, S1, S3 } = useTheme();
+  const { dark, T1, T2, B1, S1, S3 } = useTheme();
+  const [period, setPeriod] = useState('This Month');
+
   const s = useMemo(()=>{
-    const acts=leads.flatMap(l=>l.activities||[]);
-    const emails=acts.filter(a=>a.type==='Email').length;
-    const calls=acts.filter(a=>a.type==='Call').length;
-    const sms=acts.filter(a=>a.type==='SMS').length;
-    const replies=acts.filter(a=>['Replied','Positive','Connected'].includes(a.outcome)).length;
-    const rr=emails>0?parseFloat((replies/emails*100).toFixed(1)):0;
-    const funnel=[{label:'ACCOUNTS',value:leads.length,emoji:'🏢'},{label:'CONTACTED',value:leads.filter(l=>l.stage!=='New').length,emoji:'👤'},{label:'TOUCHED',value:emails+calls+sms,emoji:'📨'},{label:'REPLIED',value:replies,emoji:'💬'},{label:'DEMO',value:leads.filter(l=>l.stage==='Demo Booked').length,emoji:'📅'}];
-    const byType=[{label:'Email',count:emails,color:'#7c5ce8'},{label:'Call',count:calls,color:'#10b981'},{label:'SMS',count:sms,color:'#3b82f6'}];
-    const max=Math.max(...byType.map(x=>x.count),1);
-    return {emails,calls,sms,replies,rr,funnel,byType,max};
+    const acts = leads.flatMap(l=>l.activities||[]);
+    const emails  = acts.filter(a=>a.type==='Email').length;
+    const calls   = acts.filter(a=>a.type==='Call').length;
+    const sms     = acts.filter(a=>a.type==='SMS').length;
+    const aiGens  = acts.filter(a=>a.type==='AI Generation').length;
+    const replies = acts.filter(a=>['Replied','Positive','Connected'].includes(a.outcome)).length;
+    const rr  = emails>0 ? parseFloat((replies/emails*100).toFixed(1)) : 0;
+
+    // Funnel steps
+    const funnel = [
+      {label:'Total Accounts', value:leads.length,           color:'#7c5ce8'},
+      {label:'Contacted',      value:leads.filter(l=>l.stage!=='New').length, color:'#3b82f6'},
+      {label:'First Touch',    value:emails+calls+sms,       color:'#38bdf8'},
+      {label:'Replied',        value:replies,                 color:'#10b981'},
+      {label:'Demo Booked',    value:leads.filter(l=>l.stage==='Demo Booked').length, color:'#f59e0b'},
+      {label:'Converted',      value:leads.filter(l=>l.stage==='Converted').length, color:'#10b981'},
+    ];
+
+    // Channel breakdown
+    const byType = [
+      {label:'Email',     count:emails,  color:'#7c5ce8'},
+      {label:'Call',      count:calls,   color:'#10b981'},
+      {label:'SMS',       count:sms,     color:'#3b82f6'},
+      {label:'AI Gen',    count:aiGens,  color:'#f59e0b'},
+    ];
+    const maxType = Math.max(...byType.map(x=>x.count),1);
+
+    // Intent donut
+    const intentMap = leads.reduce((m,l)=>{const k=l.intent||'Unknown';m[k]=(m[k]||0)+1;return m;},{});
+    const intentDonut = Object.entries(intentMap).map(([k,v],i)=>({value:v,color:['#7c5ce8','#3b82f6','#10b981','#f59e0b','#ec4899'][i%5],label:k}));
+
+    // Best outreach times heatmap (representative data)
+    const heatData = [
+      [72,55,68,80,45],  // 8am
+      [85,90,78,95,60],  // 10am
+      [60,70,65,75,50],  // 1pm
+      [40,55,48,60,35],  // 3pm
+    ];
+
+    // AI score distribution
+    const scoreRanges = [
+      {label:'90-100', count:leads.filter(l=>l.aiScore>=90).length, color:'#10b981'},
+      {label:'80-89',  count:leads.filter(l=>l.aiScore>=80&&l.aiScore<90).length, color:'#34d399'},
+      {label:'70-79',  count:leads.filter(l=>l.aiScore>=70&&l.aiScore<80).length, color:'#f59e0b'},
+      {label:'60-69',  count:leads.filter(l=>l.aiScore>=60&&l.aiScore<70).length, color:'#f87171'},
+      {label:'<60',    count:leads.filter(l=>l.aiScore<60).length, color:'#ef4444'},
+    ];
+    const maxScore = Math.max(...scoreRanges.map(x=>x.count),1);
+
+    // Conversion rate by intent
+    const convByIntent = Object.entries(intentMap).map(([intent,total])=>{
+      const conv=leads.filter(l=>l.intent===intent&&l.stage==='Converted').length;
+      return {intent,total,conv,rate:total>0?Math.round(conv/total*100):0};
+    }).sort((a,b)=>b.rate-a.rate);
+
+    return {emails,calls,sms,aiGens,replies,rr,funnel,byType,maxType,intentDonut,heatData,scoreRanges,maxScore,convByIntent};
   },[leads]);
+
+  const topCards = [
+    {label:'Total Leads',   value:leads.length,   icon:'users',       color:'#7c5ce8', bg:'rgba(91,63,200,0.12)'},
+    {label:'Emails Logged', value:s.emails,       icon:'mail',        color:'#3b82f6', bg:'rgba(59,130,246,0.12)', sub:`+${s.aiGens} AI generated`},
+    {label:'Reply Rate',    value:`${s.rr}%`,     icon:'trending',    color:'#10b981', bg:'rgba(16,185,129,0.12)', sub:`${s.replies} replies`},
+    {label:'Demos Booked',  value:leads.filter(l=>l.stage==='Demo Booked').length, icon:'calendar', color:'#f59e0b', bg:'rgba(245,158,11,0.12)'},
+    {label:'Calls',         value:s.calls,        icon:'phone',       color:'#10b981', bg:'rgba(16,185,129,0.12)'},
+    {label:'SMS Sent',      value:s.sms,          icon:'send',        color:'#3b82f6', bg:'rgba(59,130,246,0.12)'},
+    {label:'Converted',     value:leads.filter(l=>l.stage==='Converted').length, icon:'checkCircle', color:'#10b981', bg:'rgba(16,185,129,0.12)'},
+    {label:'AI Generations',value:s.aiGens,       icon:'sparkles',    color:'#7c5ce8', bg:'rgba(91,63,200,0.12)'},
+  ];
+
   return (
     <div className="fade-up" style={{display:'flex',flexDirection:'column',gap:18}}>
-      <div>
-        <h1 style={{fontSize:22,fontWeight:700,color:T1,margin:0}}>Reports & Analytics</h1>
-        <p style={{fontSize:12,color:T2,marginTop:4}}>Live data from {leads.length} leads and {leads.flatMap(l=>l.activities||[]).length} activities</p>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:700,color:T1,margin:0}}>Reports & Analytics</h1>
+          <p style={{fontSize:12,color:T2,marginTop:4}}>Live data from {leads.length} leads and {leads.flatMap(l=>l.activities||[]).length} activities</p>
+        </div>
+        <div style={{display:'flex',gap:0,background:S1,border:`1px solid ${B1}`,borderRadius:9,padding:3}}>
+          {['This Month','Last Quarter','YTD'].map(p=>(
+            <button key={p} onClick={()=>setPeriod(p)} style={{padding:'5px 12px',borderRadius:7,border:'none',cursor:'pointer',background:period===p?'var(--p)':'transparent',color:period===p?'#fff':T2,fontSize:11,fontWeight:period===p?600:400,fontFamily:'inherit',transition:'all 0.15s'}}>{p}</button>
+          ))}
+        </div>
       </div>
+
+      {/* Metric cards */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
-        {[{label:'Total Leads',value:leads.length,icon:'users',color:'#7c5ce8',bg:'rgba(91,63,200,0.12)'},{label:'Emails Logged',value:s.emails,delta:`${s.rr}% reply rate`,icon:'mail',color:'#3b82f6',bg:'rgba(59,130,246,0.12)'},{label:'Replies',value:s.replies,icon:'trending',color:'#10b981',bg:'rgba(16,185,129,0.12)'},{label:'Demos Booked',value:leads.filter(l=>l.stage==='Demo Booked').length,icon:'calendar',color:'#f59e0b',bg:'rgba(245,158,11,0.12)'}].map(c=>(
-          <div key={c.label} style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,padding:'16px 18px'}}>
+        {topCards.map(c=>(
+          <div key={c.label} style={{background:S1,border:`1px solid ${B1}`,borderRadius:12,padding:'14px 16px'}}>
             <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
               <span style={{fontSize:10,fontWeight:600,color:T2,textTransform:'uppercase',letterSpacing:'0.06em'}}>{c.label}</span>
-              <div style={{width:26,height:26,borderRadius:7,background:c.bg,display:'flex',alignItems:'center',justifyContent:'center'}}><Ico name={c.icon} size={13} color={c.color}/></div>
+              <div style={{width:24,height:24,borderRadius:6,background:c.bg,display:'flex',alignItems:'center',justifyContent:'center'}}><Ico name={c.icon} size={12} color={c.color}/></div>
             </div>
-            <div style={{fontSize:28,fontWeight:700,color:T1,fontFamily:'JetBrains Mono,monospace',lineHeight:1}}>{c.value}</div>
-            {c.delta&&<p style={{fontSize:10,color:T2,margin:'5px 0 0'}}>{c.delta}</p>}
+            <div style={{fontSize:26,fontWeight:700,color:T1,fontFamily:'JetBrains Mono,monospace',lineHeight:1}}>{c.value}</div>
+            {c.sub&&<div style={{fontSize:10,color:T2,marginTop:4}}>{c.sub}</div>}
           </div>
         ))}
       </div>
-      <div style={{display:'grid',gridTemplateColumns:'1fr 240px',gap:14}}>
-        {/* Funnel */}
+
+      {/* Funnel + Activity breakdown */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 280px',gap:14}}>
         <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:20}}>
           <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:18}}>Outreach Funnel</div>
-          <div style={{display:'flex',justifyContent:'space-between',position:'relative'}}>
-            <div style={{position:'absolute',top:20,left:'5%',right:'5%',height:1,background:B1}}/>
-            {s.funnel.map(({label,value,emoji},i)=>(
-              <div key={label} style={{display:'flex',flexDirection:'column',alignItems:'center',gap:8,flex:1}}>
-                <div style={{width:40,height:40,borderRadius:'50%',background:'var(--s2)',border:`2px solid ${i===s.funnel.length-1?'#f59e0b':'rgba(91,63,200,0.4)'}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,zIndex:1}}>{emoji}</div>
-                <div style={{textAlign:'center'}}>
-                  <div style={{fontSize:9,color:T2,textTransform:'uppercase',letterSpacing:'0.04em',marginBottom:2}}>{label}</div>
-                  <div style={{fontSize:20,fontWeight:700,color:i===s.funnel.length-1?'#f59e0b':T1,fontFamily:'JetBrains Mono,monospace'}}>{value}</div>
-                </div>
-              </div>
-            ))}
-          </div>
+          <FunnelChart steps={s.funnel}/>
         </div>
-        {/* Activity breakdown */}
         <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:20}}>
-          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:14}}>Activity Breakdown</div>
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:14}}>Activity by Channel</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
             {s.byType.map(({label,count,color})=>(
-              <div key={label}>
-                <div style={{display:'flex',justifyContent:'space-between',marginBottom:3}}>
-                  <span style={{fontSize:12,color:T1}}>{label}</span>
-                  <span style={{fontSize:12,fontWeight:700,color,fontFamily:'JetBrains Mono,monospace'}}>{count}</span>
-                </div>
-                <div style={{height:6,background:S3,borderRadius:99,overflow:'hidden'}}>
-                  <div style={{height:6,width:`${count/s.max*100}%`,background:color,borderRadius:99,transition:'width 0.5s ease'}}/>
-                </div>
+              <BarRow key={label} label={label} value={count} max={s.maxType} color={color}/>
+            ))}
+          </div>
+          <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${B1}`}}>
+            <div style={{fontSize:10,fontWeight:700,color:T2,textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:8}}>Reply Rate</div>
+            <div style={{fontSize:28,fontWeight:700,color:'#10b981',fontFamily:'JetBrains Mono,monospace'}}>{s.rr}%</div>
+            <div style={{fontSize:11,color:T2,marginTop:3}}>{s.replies} replies from {s.emails} emails</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Intent donut + Score dist + Best times */}
+      <div style={{display:'grid',gridTemplateColumns:'260px 1fr 1fr',gap:14}}>
+        {/* Intent donut */}
+        <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:18,display:'flex',flexDirection:'column',alignItems:'center'}}>
+          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:12,alignSelf:'flex-start'}}>Intent Mix</div>
+          <div style={{position:'relative',marginBottom:12}}>
+            <DonutChart segments={s.intentDonut.length?s.intentDonut:[{value:1,color:'var(--b1)'}]} size={130} thick={18}/>
+            <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
+              <div style={{fontSize:16,fontWeight:700,color:T1,fontFamily:'JetBrains Mono,monospace'}}>{leads.length}</div>
+              <div style={{fontSize:9,color:T2}}>leads</div>
+            </div>
+          </div>
+          <div style={{display:'flex',flexDirection:'column',gap:5,width:'100%'}}>
+            {s.intentDonut.map(x=>(
+              <div key={x.label} style={{display:'flex',alignItems:'center',gap:6}}>
+                <div style={{width:8,height:8,borderRadius:2,background:x.color,flexShrink:0}}/>
+                <span style={{fontSize:10,color:T1,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{x.label}</span>
+                <span style={{fontSize:10,fontWeight:700,color:x.color,fontFamily:'JetBrains Mono,monospace'}}>{x.value}</span>
               </div>
             ))}
           </div>
         </div>
+
+        {/* AI Score distribution */}
+        <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:18}}>
+          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:14}}>AI Score Distribution</div>
+          <div style={{display:'flex',flexDirection:'column',gap:8}}>
+            {s.scoreRanges.map(({label,count,color})=>(
+              <BarRow key={label} label={label} value={count} max={s.maxScore} color={color}/>
+            ))}
+          </div>
+          <div style={{marginTop:14,paddingTop:12,borderTop:`1px solid ${B1}`,display:'flex',gap:16}}>
+            <div>
+              <div style={{fontSize:10,color:T2}}>Avg Score</div>
+              <div style={{fontSize:22,fontWeight:700,color:'#7c5ce8',fontFamily:'JetBrains Mono,monospace'}}>{leads.length>0?Math.round(leads.reduce((s,l)=>s+(l.aiScore||0),0)/leads.length):0}</div>
+            </div>
+            <div>
+              <div style={{fontSize:10,color:T2}}>High Intent</div>
+              <div style={{fontSize:22,fontWeight:700,color:'#10b981',fontFamily:'JetBrains Mono,monospace'}}>{leads.filter(l=>l.aiScore>=80).length}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Best outreach times heatmap */}
+        <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:18}}>
+          <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:4}}>Best Outreach Times</div>
+          <div style={{fontSize:10,color:T2,marginBottom:12}}>Reply rate % by day &amp; time (representative)</div>
+          <div style={{overflowX:'auto'}}>
+            <HeatmapGrid
+              data={s.heatData}
+              cols={5}
+              colLabels={['MON','TUE','WED','THU','FRI']}
+              rowLabels={['8am','10am','1pm','3pm']}
+              color="#7c5ce8"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Conversion by intent */}
+      <div style={{background:S1,border:`1px solid ${B1}`,borderRadius:14,padding:20}}>
+        <div style={{fontSize:13,fontWeight:600,color:T1,marginBottom:14}}>Conversion Rate by Intent</div>
+        {s.convByIntent.length===0?<span style={{fontSize:12,color:T2,fontStyle:'italic'}}>No data yet</span>:
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:12}}>
+          {s.convByIntent.map(({intent,total,conv,rate})=>{
+            const is=INTENT_STYLE[intent]||{color:'#7c5ce8',bg:'rgba(91,63,200,0.1)'};
+            return (
+              <div key={intent} style={{background:'var(--bg)',border:`1px solid ${B1}`,borderRadius:10,padding:'12px 14px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+                  <span style={{fontSize:11,color:T1,fontWeight:600}}>{intent}</span>
+                  <span style={{fontSize:10,padding:'1px 7px',borderRadius:99,background:is.bg,color:is.color,fontWeight:600}}>{total} leads</span>
+                </div>
+                <div style={{fontSize:24,fontWeight:700,color:rate>0?'#10b981':T2,fontFamily:'JetBrains Mono,monospace'}}>{rate}%</div>
+                <div style={{fontSize:10,color:T2,marginTop:2}}>{conv} converted</div>
+                <div style={{height:4,background:S3,borderRadius:99,marginTop:8,overflow:'hidden'}}>
+                  <div style={{height:4,width:`${rate}%`,background:rate>0?'#10b981':'var(--b2)',borderRadius:99,transition:'width 0.5s ease'}}/>
+                </div>
+              </div>
+            );
+          })}
+        </div>}
       </div>
     </div>
   );
