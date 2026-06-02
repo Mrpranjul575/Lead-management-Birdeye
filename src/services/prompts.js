@@ -481,6 +481,28 @@ If reply: [action]
 If no reply: [action]`;
 }
 
+// ─── Cadence step email/SMS generator ────────────────────────────────────────
+export function buildCadenceStepPrompt(lead, step) {
+  if (!lead) return 'No lead selected.';
+  const ctx = buildLeadContext(lead);
+  return `${ctx}
+
+TASK: Write a ${step.channel || 'Email'} for Day ${step.day || 1} of this lead's outreach cadence.
+Angle: ${step.angle || step.label || step.name || 'Value-add outreach'}
+Type: ${step.type || 'Automated'}
+
+Rules:
+- Reference something specific about ${lead.business}
+- Lead with their pain point — not Birdeye features
+- End with ONE clear low-friction CTA
+- Under 100 words for email body
+- If email: provide Subject line first, then body
+- If SMS: under 160 characters, no emoji overload
+- Sign off: Paul | SDR, Birdeye
+
+Output the ${step.channel || 'Email'} only. Nothing else.`;
+}
+
 // ─── Re-engage hook generator ─────────────────────────────────────────────────
 export function buildReEngagePrompt(lead, signal) {
   if (!lead) return 'No lead selected. Open a lead first.';

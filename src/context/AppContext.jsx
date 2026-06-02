@@ -593,6 +593,16 @@ export function AppProvider({ children }) {
   const saveCadence   = useCallback((cad) => {
     if (cad.id) setCadences(cs => cs.map(c => c.id===cad.id?cad:c));
     else setCadences(cs => [...cs, { ...cad, id:Date.now() }]);
+    // Push cadence step summary to Google Sheets
+    setTimeout(() => {
+      const stepSummary = cad.steps?.map(s =>
+        `Day ${s.day}: ${s.channel} — ${s.angle || s.name || ''}`
+      ).join('\n') || '';
+      SheetsAdapter.pushGeneratedContent(
+        { business: 'Cadence: ' + cad.name, email: '', stage: 'Active' },
+        { email1: stepSummary }
+      ).catch(() => {});
+    }, 0);
   }, []);
   const deleteCadence = useCallback((id) => setCadences(cs => cs.filter(c=>c.id!==id)), []);
 

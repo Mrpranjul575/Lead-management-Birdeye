@@ -20,7 +20,7 @@ import FollowUpModal from '../components/FollowUpModal';
 import RecordingUpload from '../components/RecordingUpload';
 import AccountKnowledgeTab, { countPendingAK, countConflicts } from '../components/AccountKnowledgeTab';
 import { getAgeBand, formatAgeLabel } from '../utils/accountKnowledgeUtils';
-import { buildAENotesPrompt } from '../services/prompts';
+import { buildAENotesPrompt, buildCadenceStepPrompt } from '../services/prompts';
 import { SheetsAdapter } from '../services/sheetsAdapter';
 import { useTheme } from '../hooks/useTheme';
 
@@ -1362,9 +1362,14 @@ function MemoryTab({ lead }) {
 
 /* ─── Tab: Cadence ─── */
 function CadenceTab({ lead }) {
-  const { markStepComplete, advanceCadenceDay, openCopilot } = useApp();
+  const { markStepComplete, advanceCadenceDay, openCopilot, addActivity } = useApp();
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const CHANNEL_TO_COPILOT_MODE = { Email:'email', SMS:'sms', VM:'voicemail', LinkedIn:'linkedin' };
+
+  const [activeStepGen, setActiveStepGen] = useState(null);
+  const [stepCopied,    setStepCopied]    = useState(null);
+  const [stepPaste,     setStepPaste]     = useState('');
+  const [stepSaved,     setStepSaved]     = useState(null);
 
   const currentDay   = lead.cadenceDay  || 0;
   const totalDays    = lead.cadenceTotal || 7;
@@ -1414,7 +1419,8 @@ function CadenceTab({ lead }) {
           const pending = isCur && !done;
 
           return (
-            <div key={step.key} style={{ display:'flex', alignItems:'center', gap:12, marginBottom:18, position:'relative' }}>
+            <div key={step.key}>
+            <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom: activeStepGen===step.day ? 0 : 18, position:'relative' }}>
               {/* Timeline dot */}
               <div style={{
                 position:'absolute', left:-26, width:14, height:14, borderRadius:'50%', zIndex:1,
@@ -1451,6 +1457,20 @@ function CadenceTab({ lead }) {
                     Generate ✨
                   </button>
                   <button
+                    onClick={() => {
+                      const prompt = buildCadenceStepPrompt(lead, step);
+                      navigator.clipboard.writeText(prompt);
+                      setActiveStepGen(step.day);
+                      setStepCopied(step.day);
+                      setTimeout(() => setStepCopied(null), 2500);
+                    }}
+                    title="Copy Claude prompt for this step"
+                    style={{ fontSize:10, padding:'3px 10px', borderRadius:99, border:'1px solid rgba(56,189,248,0.4)', background: stepCopied===step.day ? 'rgba(16,185,129,0.15)' : 'rgba(56,189,248,0.1)', color: stepCopied===step.day ? '#10B981' : '#38BDF8', cursor:'pointer', fontFamily:'inherit', fontWeight:600, transition:'all 0.12s', flexShrink:0 }}
+                    onMouseEnter={e => { e.currentTarget.style.background='rgba(56,189,248,0.2)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background= stepCopied===step.day ? 'rgba(16,185,129,0.15)' : 'rgba(56,189,248,0.1)'; }}>
+                    {stepCopied===step.day ? '✓ Copied!' : '📋 Copy Prompt'}
+                  </button>
+                  <button
                     onClick={() => markStepComplete(lead.id, step.key, currentDay)}
                     style={{ fontSize:10, padding:'3px 10px', borderRadius:99, border:'1px solid rgba(16,185,129,0.4)', background:'rgba(16,185,129,0.1)', color:'#10B981', cursor:'pointer', fontFamily:'inherit', fontWeight:600, transition:'all 0.12s', flexShrink:0 }}
                     onMouseEnter={e => { e.currentTarget.style.background='rgba(16,185,129,0.2)'; }}
@@ -1466,6 +1486,48 @@ function CadenceTab({ lead }) {
                 </span>
               )}
             </div>
+
+            {/* Paste panel — shown after copying step prompt */}
+            {activeStepGen === step.day && (
+              <div style={{ marginLeft:40, marginTop:8, marginBottom:18, background:'var(--bg)', border:'1px solid rgba(56,189,248,0.3)', borderRadius:10, padding:'12px', display:'flex', flexDirection:'column', gap:8 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:T1 }}>
+                  Prompt copied — paste Claude's {step.channel} response below:
+                </div>
+                {stepSaved === step.day ? (
+                  <div style={{ fontSize:11, fontWeight:600, color:'#10B981' }}>✓ Saved to activity log and pushed to Sheet!</div>
+                ) : (
+                  <>
+                    <textarea
+                      value={stepPaste}
+                      onChange={e => setStepPaste(e.target.value)}
+                      rows={5}
+                      placeholder={`Paste Claude's Day ${step.day} ${step.channel} here…`}
+                      style={{ width:'100%', padding:'9px 11px', borderRadius:8, border:`1px solid ${B1}`, background:'var(--s2)', color:T1, fontSize:12, fontFamily:'inherit', lineHeight:1.7, resize:'vertical', outline:'none' }}
+                    />
+                    <div style={{ display:'flex', gap:8 }}>
+                      <button
+                        onClick={() => { setActiveStepGen(null); setStepPaste(''); }}
+                        style={{ flex:1, padding:'7px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color:T2, fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!stepPaste.trim()) return;
+                          addActivity(lead.id, 'Email', `Cadence Day ${step.day} ${step.channel} generated`, { content: stepPaste, subject: '', source: 'copilot' });
+                          SheetsAdapter.pushGeneratedContent(lead, { email1: stepPaste }).catch(() => {});
+                          setStepSaved(step.day);
+                          setTimeout(() => { setStepPaste(''); setActiveStepGen(null); setStepSaved(null); }, 1500);
+                        }}
+                        disabled={!stepPaste.trim()}
+                        style={{ flex:2, padding:'7px', borderRadius:8, border:'none', background: stepPaste.trim() ? '#5B3FC8' : 'rgba(91,63,200,0.3)', color:'#fff', fontSize:11, fontWeight:600, cursor: stepPaste.trim() ? 'pointer' : 'not-allowed', fontFamily:'inherit' }}>
+                        💾 Save + Push to Sheet
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
           );
         })}
       </div>

@@ -246,7 +246,7 @@ const TOOLBOX = [
 ];
 
 export default function Cadences() {
-  const { theme, cadences, saveCadence, leads } = useApp();
+  const { theme, cadences, saveCadence, leads, updateLead, addActivity } = useApp();
   const dark = theme==='dark';
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const S1=dark?'#161B22':'#FFFFFF', S2=dark?'#0D1117':'#F8F9FA';
@@ -257,6 +257,24 @@ export default function Cadences() {
   const [cadDesc,    setCadDesc]    = useState('Multi-channel outreach targeting leads to improve AI visibility.');
   const [view,       setView]       = useState('editor'); // 'editor' | 'performance'
   const [savedMsg,   setSavedMsg]   = useState(false);
+  const [applyTarget, setApplyTarget] = useState(null);
+  const [applyingId,  setApplyingId]  = useState(null);
+  const [applyDone,   setApplyDone]   = useState(null);
+
+  const handleApplyToLead = (cad, leadId) => {
+    const target = leads.find(l => l.id === leadId);
+    if (!target) return;
+    updateLead(leadId, {
+      cadenceId:    cad.id,
+      cadenceName:  cad.name,
+      cadenceDay:   0,
+      cadenceTotal: cad.steps?.length || 7,
+    });
+    addActivity(leadId, 'Cadence Update', 'Cadence applied: ' + cad.name, { source: 'manual' });
+    setApplyDone(cad.id);
+    setApplyingId(null);
+    setTimeout(() => setApplyDone(null), 2500);
+  };
 
   const handleSaveCadence = () => {
     saveCadence({ id: null, name: cadName, description: cadDesc, steps });
@@ -322,6 +340,35 @@ export default function Cadences() {
                   <div style={{ width:6, height:6, borderRadius:'50%', background:'#4edea3' }}/>
                   <span style={{ fontSize:10, fontWeight:600, color:'#4edea3' }}>Active</span>
                 </div>
+              </div>
+
+              {/* Save cadence button */}
+              <button onClick={handleSaveCadence} style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'8px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)', transition:'background 0.15s' }}
+                onMouseEnter={e=>e.currentTarget.style.background='#4828B5'}
+                onMouseLeave={e=>e.currentTarget.style.background='#5B3FC8'}>
+                <Save size={11}/> {savedMsg ? '✓ Saved!' : 'Save Cadence'}
+              </button>
+
+              {/* Apply to Lead */}
+              <div style={{ borderTop:`1px solid ${B1}`, paddingTop:10 }}>
+                <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:6 }}>Apply to Lead</div>
+                {applyDone === null && (
+                  <select
+                    onChange={e => {
+                      const id = parseInt(e.target.value);
+                      if (id) handleApplyToLead({ id: Date.now(), name: cadName, description: cadDesc, steps }, id);
+                    }}
+                    defaultValue=""
+                    style={{ padding:'5px 10px', borderRadius:7, border:`1px solid ${B1}`, background:S2, color:T1, fontSize:11, fontFamily:'inherit', outline:'none', cursor:'pointer', width:'100%' }}>
+                    <option value="" disabled>Select lead…</option>
+                    {leads.map(l => (
+                      <option key={l.id} value={l.id}>{l.business}</option>
+                    ))}
+                  </select>
+                )}
+                {applyDone !== null && (
+                  <div style={{ fontSize:11, fontWeight:600, color:'#10B981', padding:'5px 0' }}>✓ Applied!</div>
+                )}
               </div>
             </div>
           </div>
