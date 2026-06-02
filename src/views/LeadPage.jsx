@@ -20,6 +20,9 @@ import FollowUpModal from '../components/FollowUpModal';
 import RecordingUpload from '../components/RecordingUpload';
 import AccountKnowledgeTab, { countPendingAK, countConflicts } from '../components/AccountKnowledgeTab';
 import { getAgeBand, formatAgeLabel } from '../utils/accountKnowledgeUtils';
+import { buildAENotesPrompt } from '../services/prompts';
+import { SheetsAdapter } from '../services/sheetsAdapter';
+import { useTheme } from '../hooks/useTheme';
 
 /* ─── Shared score ring ─────────────────────────────── */
 function ScoreRing({ score, size=52 }) {
@@ -836,22 +839,104 @@ function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording
 /* ─── Tab: AE Notes ─── */
 function AENotesTab({ lead }) {
   const { updateLead } = useApp();
-  const [val, setVal] = useState(lead.aeNotes||'');
+  const { T1, T2, B1, S1, S2 } = useTheme();
+  const [localNotes,   setLocalNotes]   = useState(lead.aeNotes || '');
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [pastedResult, setPastedResult] = useState('');
+  const [showPasteBox, setShowPasteBox] = useState(false);
+  const [saved,        setSaved]        = useState(false);
   const debRef = useRef(null);
-  const onChange = v => { setVal(v); clearTimeout(debRef.current); debRef.current=setTimeout(()=>updateLead(lead.id,{aeNotes:v}),400); };
-  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+
+  const handleNotesChange = (val) => {
+    setLocalNotes(val);
+    clearTimeout(debRef.current);
+    debRef.current = setTimeout(() => updateLead(lead.id, { aeNotes: val }), 400);
+  };
+
+  const handleGeneratePrompt = () => {
+    const prompt = buildAENotesPrompt(lead);
+    navigator.clipboard.writeText(prompt);
+    setPromptCopied(true);
+    setShowPasteBox(true);
+    setTimeout(() => setPromptCopied(false), 2500);
+  };
+
+  const handleSaveAENotes = () => {
+    if (!pastedResult.trim()) return;
+    const cleaned = pastedResult
+      .replace(/\*\*/g, '')
+      .replace(/#{1,6}\s/g, '')
+      .replace(/---+/g, '')
+      .replace(/\*/g, '')
+      .trim();
+    updateLead(lead.id, { aeNotes: cleaned });
+    setLocalNotes(cleaned);
+    setShowPasteBox(false);
+    setPastedResult('');
+    SheetsAdapter.pushAENotes({ ...lead, aeNotes: cleaned }).catch(() => {});
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+  };
+
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-      <div style={{ display:'flex', gap:8, padding:'8px 12px', borderRadius:9, background:'rgba(91,63,200,0.06)', border:'1px solid rgba(91,63,200,0.2)' }}>
-        <Brain size={13} color="#7C5CE8" style={{ flexShrink:0, marginTop:1 }}/>
-        <p style={{ fontSize:11, color:T2, margin:0, lineHeight:1.6 }}>
-          AE Notes are your <strong style={{ color:'var(--t1)' }}>research layer</strong>: GMB, competitors, keywords, SEO scans, website data. Static context — AI Intelligence is separate and dynamic.
-        </p>
+      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        <div style={{ flex:1, padding:'8px 12px', borderRadius:9, background:'rgba(91,63,200,0.06)', border:'1px solid rgba(91,63,200,0.2)' }}>
+          <span style={{ fontSize:11, color:T2, lineHeight:1.6 }}>
+            AE Notes are your <strong style={{ color:T1 }}>static research layer</strong> — GMB, competitors, keywords, SEO scans.
+          </span>
+        </div>
+        <button onClick={handleGeneratePrompt} style={{
+          display:'flex', alignItems:'center', gap:6, padding:'8px 14px',
+          borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff',
+          fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit',
+          boxShadow:'0 4px 12px rgba(91,63,200,0.3)', whiteSpace:'nowrap',
+          transition:'background 0.15s',
+        }}
+          onMouseEnter={e=>e.currentTarget.style.background='#4828B5'}
+          onMouseLeave={e=>e.currentTarget.style.background='#5B3FC8'}>
+          {promptCopied ? '✓ Prompt Copied!' : '⚡ Generate AE Notes'}
+        </button>
       </div>
-      <textarea value={val} onChange={e=>onChange(e.target.value)} rows={18}
-        placeholder="Paste research here: competitor review counts, Google Maps URL, Salesloft URL, keywords, SEO scan, rep gap, any context that helps the AE…"
+
+      {showPasteBox && (
+        <div style={{ background:'var(--bg)', border:'1px solid rgba(91,63,200,0.3)', borderRadius:12, padding:'14px', display:'flex', flexDirection:'column', gap:10 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:T1 }}>
+            Prompt copied — paste in Claude.ai, then paste response below:
+          </div>
+          <textarea
+            value={pastedResult}
+            onChange={e=>setPastedResult(e.target.value)}
+            rows={8}
+            placeholder="Paste Claude's AE Notes response here…"
+            style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:`1px solid ${B1}`, background:S2, color:T1, fontSize:12, fontFamily:'inherit', lineHeight:1.7, resize:'vertical', outline:'none' }}
+          />
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={()=>{ setShowPasteBox(false); setPastedResult(''); }} style={{ flex:1, padding:'8px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color:T2, fontSize:12, cursor:'pointer', fontFamily:'inherit' }}>
+              Cancel
+            </button>
+            <button onClick={handleSaveAENotes} disabled={!pastedResult.trim()} style={{ flex:2, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'8px', borderRadius:8, border:'none', background:pastedResult.trim()?'#5B3FC8':'rgba(91,63,200,0.3)', color:'#fff', fontSize:12, fontWeight:600, cursor:pastedResult.trim()?'pointer':'not-allowed', fontFamily:'inherit' }}>
+              💾 Save + Push to Sheet
+            </button>
+          </div>
+        </div>
+      )}
+
+      {saved && (
+        <div style={{ padding:'10px 12px', borderRadius:9, background:'rgba(16,185,129,0.1)', border:'1px solid rgba(16,185,129,0.25)', fontSize:12, fontWeight:600, color:'#10B981' }}>
+          ✓ AE Notes saved and pushed to Google Sheet!
+        </div>
+      )}
+
+      <textarea
+        value={localNotes}
+        onChange={e=>handleNotesChange(e.target.value)}
+        rows={18}
+        placeholder="Paste research here: competitor review counts, GMB URL, Salesloft URL, keywords, SEO scan…"
         style={{ width:'100%', padding:'14px', borderRadius:10, border:`1px solid ${B1}`, background:'var(--bg)', color:T1, fontSize:12, fontFamily:'JetBrains Mono,monospace', lineHeight:1.8, resize:'vertical', outline:'none', transition:'border-color 0.15s' }}
-        onFocus={e=>e.target.style.borderColor='#5B3FC8'} onBlur={e=>e.target.style.borderColor=B1}/>
+        onFocus={e=>e.target.style.borderColor='#5B3FC8'}
+        onBlur={e=>e.target.style.borderColor=B1}
+      />
     </div>
   );
 }

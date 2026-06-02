@@ -373,57 +373,46 @@ Label each message exactly as:
 }
 
 // ─── AE Notes generator ───────────────────────────────────────────────────────
-export function buildAENotesPrompt(lead, rawData, aiReport, seoReport, repGap, addlNotes) {
-  return `You are a senior SDR writing structured AE handoff notes for a new lead.
+export function buildAENotesPrompt(lead) {
+  if (!lead) return 'No lead selected.';
+  const competitors = lead.intelligence?.competitors || [];
+  const c1 = competitors[0] || lead.competitor || '';
+  const c2 = competitors[1] || '';
 
-RAW INPUT DATA:
-${rawData || 'Not provided'}
+  return `You are a sales enablement specialist at Birdeye.
+Generate AE Notes in plain text only. No markdown. No asterisks. No bold. No bullet symbols.
 
-AI SCAN REPORT:
-${aiReport || 'Not provided'}
+Use EXACTLY this format — every field on its own line:
 
-LOCAL SEO REPORT:
-${seoReport || 'Not provided'}
+Business Name: ${lead.business || ''}
+Name: ${lead.contact || ''}
+Location: ${lead.city || ''}
+Industry: ${lead.industry || ''}
+Rating: ${lead.rating || ''}
+Reviews: ${lead.reviews || ''}
+Keyword: ${lead.keyword || ''}
+Competitors: ${c1}${c2 ? ', ' + c2 : ''}
+GMB URL: ${lead.gmbUrl || ''}
+Salesloft URL: ${lead.salesloftUrl || ''}
+MQL Date: ${lead.mqlDate || ''}
+AI Score: ${lead.aiScore || ''}
+Intent: ${lead.intent || ''}
+Stage: ${lead.stage || ''}
+Pain Points: ${(lead.intelligence?.painPoints || []).join(', ') || ''}
+Buying Signals: ${(lead.intelligence?.buyingSignals || []).join(', ') || ''}
+Last Conversation: ${lead.intelligence?.lastConversation || ''}
+Next Best Action: ${lead.intelligence?.nextBestAction || lead.nextAction || ''}
 
-REPUTATION GAP DATA:
-${repGap || 'Not provided'}
+Raw Research Notes:
+${lead.aeNotes || 'None provided'}
 
-ADDITIONAL NOTES:
-${addlNotes || 'Not provided'}
+Rules:
+- Plain text only — no markdown, no asterisks, no bold
+- Real numbers only — never invented
+- Mention competitor names and exact gaps where known
+- Leave field blank if data not available
 
-═══ TASK: GENERATE STRUCTURED AE NOTES ═══
-Analyse all the input data above and write clean, structured AE notes.
-
-Output EXACTLY in this format:
-
-## Lead Summary
-[2-3 sentence overview: who they are, what they need, why now]
-
-## Pain Points
-- [specific pain point from the data]
-- [specific pain point from the data]
-- [add more if present]
-
-## Competitor Intelligence
-- [competitor name + their advantage/disadvantage]
-- [any other competitors mentioned]
-
-## Intent Signals
-- Primary: [intent]
-- Signals: [what in the data suggests this]
-
-## Keyword & SEO Context
-- Target keyword: [if present]
-- Local SEO gaps: [from SEO report]
-- AI visibility: [from AI report]
-
-## Recommended Angle
-[1-2 sentences: what is the strongest opening angle for this lead based on all the data]
-
-## Next Best Action
-[Specific action: e.g. "Send competitor proof email leading with the X review gap vs Y competitor"]
-
-Write concisely. Every bullet should contain a real insight, not a placeholder.`;
+Output AE Notes only. Nothing else.`;
 }
 
 // ─── Situational prompt ───────────────────────────────────────────────────────
