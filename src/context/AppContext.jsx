@@ -263,6 +263,159 @@ export function AppProvider({ children }) {
       return { ...al, accountKnowledge: confirmAllPending(al.accountKnowledge) };
     });
   }, []);
+
+  // ── Account Knowledge conflict resolution — Phase 7D-B ───────────────────
+  //
+  // resolveConflict(leadId, field, identityKey, resolution)
+  //   resolution: 'keep' | 'accept'
+  //   Both paths clear conflictWith and stamp reviewedAt = now.
+  //   'keep': confirmed values are correct. conflictWith discarded.
+  //   'accept': conflictWith factual values applied over confirmed entry.
+  //             Original source/sourceDate preserved (Modification 1) —
+  //             the SDR validated an extraction; they did not originate the fact.
+  //   applyScore() NOT called — scoring does not read accountKnowledge.
+  //
+  //   conflictWith payload shapes per field (for Phase 7D-C rendering):
+  //     competitors:      { strength, context, source, sourceDate, extractedFrom }
+  //     decisionMakers:   { role, authority, notes, source, sourceDate, extractedFrom }
+  //     currentTools:     { category, source, sourceDate, extractedFrom }
+  //     budget:           { status, amount, notes, source, sourceDate, extractedFrom }
+  //     purchaseTimeline: { urgency, targetDate, notes, source, sourceDate, extractedFrom }
+  //   businessGoals and recurringObjections carry no conflictWith (no sub-values).
+  //
+  //   Future: resolvedAt (ISO timestamp) to be added in a later phase.
+  //   Conflict resolution and fact review are distinct lifecycle events.
+  //   resolvedAt will record when a conflict was explicitly settled, separate
+  //   from reviewedAt which records the last SDR touch on the confirmed value.
+  //
+  // keepExistingFact(leadId, field, identityKey)
+  //   Convenience wrapper for resolveConflict(..., 'keep').
+  //   Named for call-site clarity in the conflict UI: the SDR is explicitly
+  //   saying "what I have is correct."
+  //
+  // supersedeFact(leadId, field, oldKey, newItem)
+  //   Array fields only. Marks old entry as 'superseded' (retained for history),
+  //   appends newItem as 'confirmed'. Use when the old fact was true but is
+  //   no longer true (e.g. switched tools, new decision maker).
+  //   Distinct from resolveConflict('accept') which updates values in-place:
+  //     resolveConflict('accept') → old value was wrong, correct it
+  //     supersedeFact()           → old value was right, now replaced
+  //   Scalar fields (budget, purchaseTimeline) do not support supersession —
+  //   use resolveConflict('accept') for scalars.
+
+  // conflictWith factual field sets per array type — used by applyConflictResolution
+  // to extract only factual values from conflictWith, excluding provenance metadata.
+  const CONFLICT_FACT_FIELDS = {
+    competitors:      ['strength', 'context'],
+    decisionMakers:   ['role', 'authority', 'notes'],
+    currentTools:     ['category'],
+    budget:           ['status', 'amount', 'notes'],
+    purchaseTimeline: ['urgency', 'targetDate', 'notes'],
+  };
+
+  /**
+   * applyConflictResolution — pure helper.
+   * Returns new accountKnowledge with conflict on the matched item resolved.
+   * 'keep' : clears conflictWith, stamps reviewedAt. No value change.
+   * 'accept': applies conflictWith factual values over confirmed entry,
+   *           clears conflictWith, stamps reviewedAt.
+   *           Original source/sourceDate preserved per Modification 1.
+   */
+  function applyConflictResolution(ak, field, identityKey, resolution) {
+    if (!ak) return ak;
+    const now = new Date().toISOString();
+    const factFields = CONFLICT_FACT_FIELDS[field] || [];
+
+    if (AK_SCALAR_FIELDS.has(field)) {
+      const existing = ak[field];
+      if (!existing || !existing.conflictWith) return ak;
+      if (resolution === 'keep') {
+        return { ...ak, [field]: { ...existing, conflictWith: null, reviewedAt: now } };
+      }
+      // 'accept': pick only factual fields from conflictWith, preserve source provenance
+      const factsToApply = {};
+      for (const f of factFields) {
+        if (existing.conflictWith[f] !== undefined) factsToApply[f] = existing.conflictWith[f];
+      }
+      return { ...ak, [field]: { ...existing, ...factsToApply, conflictWith: null, reviewedAt: now } };
+    }
+
+    if (AK_ARRAY_FIELDS.has(field)) {
+      const keyProp = AK_IDENTITY_KEY[field];
+      const keyVal  = identityKey?.toLowerCase().trim();
+      return {
+        ...ak,
+        [field]: (ak[field] || []).map(item => {
+          if (item[keyProp]?.toLowerCase().trim() !== keyVal) return item;
+          if (!item.conflictWith) return item;
+          if (resolution === 'keep') {
+            return { ...item, conflictWith: null, reviewedAt: now };
+          }
+          // 'accept': pick only factual fields from conflictWith, preserve source provenance
+          const factsToApply = {};
+          for (const f of factFields) {
+            if (item.conflictWith[f] !== undefined) factsToApply[f] = item.conflictWith[f];
+          }
+          return { ...item, ...factsToApply, conflictWith: null, reviewedAt: now };
+        }),
+      };
+    }
+
+    return ak;
+  }
+
+  /**
+   * applySupersede — pure helper. Array fields only.
+   * Marks old entry 'superseded' (kept for history), appends newItem as 'confirmed'.
+   * Also clears any conflictWith on the old entry (supersession resolves it).
+   */
+  function applySupersede(ak, field, oldKey, newItem) {
+    if (!ak || !AK_ARRAY_FIELDS.has(field)) return ak; // scalars not supported
+    const keyProp = AK_IDENTITY_KEY[field];
+    const keyVal  = oldKey?.toLowerCase().trim();
+    const now     = new Date().toISOString();
+
+    const updatedArray = (ak[field] || []).map(item =>
+      item[keyProp]?.toLowerCase().trim() === keyVal
+        ? { ...item, reviewStatus: 'superseded', reviewedAt: now, conflictWith: null }
+        : item
+    );
+
+    const newConfirmed = {
+      ...newItem,
+      reviewStatus: 'confirmed',
+      reviewedAt:   now,
+      source:       newItem.source || 'sdr_manual',
+    };
+
+    return { ...ak, [field]: [...updatedArray, newConfirmed] };
+  }
+
+  const resolveConflict = useCallback((leadId, field, identityKey, resolution) => {
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      return { ...l, accountKnowledge: applyConflictResolution(l.accountKnowledge, field, identityKey, resolution) };
+    }));
+    setActiveLead(al => {
+      if (al?.id !== leadId) return al;
+      return { ...al, accountKnowledge: applyConflictResolution(al.accountKnowledge, field, identityKey, resolution) };
+    });
+  }, []);
+
+  const keepExistingFact = useCallback((leadId, field, identityKey) => {
+    resolveConflict(leadId, field, identityKey, 'keep');
+  }, [resolveConflict]);
+
+  const supersedeFact = useCallback((leadId, field, oldKey, newItem) => {
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      return { ...l, accountKnowledge: applySupersede(l.accountKnowledge, field, oldKey, newItem) };
+    }));
+    setActiveLead(al => {
+      if (al?.id !== leadId) return al;
+      return { ...al, accountKnowledge: applySupersede(al.accountKnowledge, field, oldKey, newItem) };
+    });
+  }, []);
   const addActivity = useCallback((leadId, type, summary, details = {}) => {
     const entry = createActivity(type, summary, details);
     setLeads(ls => ls.map(l => l.id===leadId
@@ -408,6 +561,7 @@ export function AppProvider({ children }) {
       leads, addLead, updateLead, updateLeadMerged,
       updateIntelligence, updateAccountKnowledge,
       confirmAccountKnowledgeFact, dismissAccountKnowledgeFact, bulkConfirmAccountKnowledge,
+      resolveConflict, keepExistingFact, supersedeFact,
       addActivity, addActivityEntry, addMemoryEntry, removeMemoryEntry, addTouchEntry,
       cadences, saveCadence, deleteCadence,
       markStepComplete, advanceCadenceDay,
