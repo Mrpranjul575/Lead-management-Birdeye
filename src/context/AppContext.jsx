@@ -416,6 +416,55 @@ export function AppProvider({ children }) {
       return { ...al, accountKnowledge: applySupersede(al.accountKnowledge, field, oldKey, newItem) };
     });
   }, []);
+
+  // ── Account Knowledge freshness — Phase 7D-D ─────────────────────────────
+  //
+  // reverifyAccountKnowledgeFact(leadId, field, identityKey)
+  //   Sets reviewedAt → now on the matched item. No other changes.
+  //   Modification 1: source is NOT overwritten. The SDR verified the fact;
+  //   they did not originate it. Original provenance is preserved.
+  //   applyScore() NOT called — scoring does not read accountKnowledge.
+
+  /**
+   * applyReverify — pure helper. Updates reviewedAt only; source unchanged.
+   * Works for both array fields (by identityKey) and scalar fields (identityKey null).
+   */
+  function applyReverify(ak, field, identityKey) {
+    if (!ak) return ak;
+    const now = new Date().toISOString();
+
+    if (AK_SCALAR_FIELDS.has(field)) {
+      if (!ak[field]) return ak;
+      return { ...ak, [field]: { ...ak[field], reviewedAt: now } };
+    }
+
+    if (AK_ARRAY_FIELDS.has(field)) {
+      const keyProp = AK_IDENTITY_KEY[field];
+      const keyVal  = identityKey?.toLowerCase().trim();
+      return {
+        ...ak,
+        [field]: (ak[field] || []).map(item =>
+          item[keyProp]?.toLowerCase().trim() === keyVal
+            ? { ...item, reviewedAt: now }
+            : item
+        ),
+      };
+    }
+
+    return ak; // unknown field — no-op
+  }
+
+  const reverifyAccountKnowledgeFact = useCallback((leadId, field, identityKey) => {
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      return { ...l, accountKnowledge: applyReverify(l.accountKnowledge, field, identityKey) };
+    }));
+    setActiveLead(al => {
+      if (al?.id !== leadId) return al;
+      return { ...al, accountKnowledge: applyReverify(al.accountKnowledge, field, identityKey) };
+    });
+  }, []);
+
   const addActivity = useCallback((leadId, type, summary, details = {}) => {
     const entry = createActivity(type, summary, details);
     setLeads(ls => ls.map(l => l.id===leadId
@@ -561,7 +610,7 @@ export function AppProvider({ children }) {
       leads, addLead, updateLead, updateLeadMerged,
       updateIntelligence, updateAccountKnowledge,
       confirmAccountKnowledgeFact, dismissAccountKnowledgeFact, bulkConfirmAccountKnowledge,
-      resolveConflict, keepExistingFact, supersedeFact,
+      resolveConflict, keepExistingFact, supersedeFact, reverifyAccountKnowledgeFact,
       addActivity, addActivityEntry, addMemoryEntry, removeMemoryEntry, addTouchEntry,
       cadences, saveCadence, deleteCadence,
       markStepComplete, advanceCadenceDay,

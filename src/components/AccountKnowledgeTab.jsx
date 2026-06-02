@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { CheckCircle2, X, AlertCircle, ShieldCheck, Zap } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { isConfirmed, hasConflict } from '../data/schema';
+import { getAgeBand, AGE_BAND_CONFIG, formatAgeLabel } from '../utils/accountKnowledgeUtils';
 
 // ── Field metadata ─────────────────────────────────────────────────────────────
 const FIELD_META = {
@@ -437,17 +438,32 @@ function ConflictCard({ field, identityKey, item, lead }) {
 }
 
 // ── AKItem — one confirmed fact row ────────────────────────────────────────────
-function AKItem({ field, item }) {
-  const meta      = FIELD_META[field];
-  const primary   = getPrimaryValue(field, item);
-  const secondary = getSecondaryValue(field, item);
+// Phase 7D-D: age band dot + freshness label + Re-Verify button (old facts only).
+// Modification 2: Re-Verify shown only when band === 'old'.
+// Modification 4: explicit "Last verified X" language via formatAgeLabel().
+// identityKey is derived internally from item + field (no new prop).
+function AKItem({ field, item, leadId }) {
+  const { reverifyAccountKnowledgeFact } = useApp();
+  const meta       = FIELD_META[field];
+  const primary    = getPrimaryValue(field, item);
+  const secondary  = getSecondaryValue(field, item);
   const T1 = 'var(--t1)', T2 = 'var(--t2)', B1 = 'var(--b1)';
+
+  // Derive identity key from item — keeps AKCategory call site clean
+  const identityKey = meta.identityProp ? item[meta.identityProp] : null;
+
+  // Age band (display-only, computed at render time, never stored)
+  const band       = getAgeBand(item);
+  const bandConfig = AGE_BAND_CONFIG[band];
+  const ageLabel   = formatAgeLabel(item);
 
   return (
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: 8,
       padding: '8px 10px', borderRadius: 8,
       border: `1px solid ${B1}`, background: 'var(--bg)',
+      // Dim old items slightly to draw attention to their staleness
+      opacity: band === 'old' ? 0.82 : 1,
     }}>
       <div style={{
         width: 6, height: 6, borderRadius: '50%',
@@ -458,11 +474,49 @@ function AKItem({ field, item }) {
         {secondary && (
           <div style={{ fontSize: 11, color: T2, marginTop: 1 }}>{secondary}</div>
         )}
-        <div style={{ marginTop: 4 }}>
+
+        {/* Provenance + age row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4, flexWrap: 'wrap' }}>
+          {/* Age band dot — only shown for aging and old (recent needs no indicator) */}
+          {band !== 'recent' && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 3,
+              fontSize: 9, fontWeight: 600,
+              color: bandConfig.color,
+            }}>
+              <span style={{
+                display: 'inline-block', width: 5, height: 5,
+                borderRadius: '50%', background: bandConfig.color,
+              }} />
+              {/* Modification 4: explicit freshness language */}
+              {ageLabel}
+            </span>
+          )}
+
           <SourceBadge
             source={item.source}
             date={item.reviewedAt ? `Confirmed ${formatRelativeDate(item.reviewedAt)}` : formatRelativeDate(item.sourceDate)}
           />
+
+          {/* Re-Verify button — Modification 2: shown only for old facts */}
+          {bandConfig.showAction && (
+            <button
+              onClick={() => reverifyAccountKnowledgeFact(leadId, field, identityKey)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 3,
+                fontSize: 9, fontWeight: 600, padding: '1px 7px', borderRadius: 99,
+                border: `1px solid ${bandConfig.color}40`,
+                background: `${bandConfig.color}10`,
+                color: bandConfig.color,
+                cursor: 'pointer', fontFamily: 'inherit', transition: 'background 0.12s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = `${bandConfig.color}22`; }}
+              onMouseLeave={e => { e.currentTarget.style.background = `${bandConfig.color}10`; }}
+              title="Mark as still current — updates last verified date"
+            >
+              ↻ Re-Verify
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -470,18 +524,16 @@ function AKItem({ field, item }) {
 }
 
 // ── AKCategory — one confirmed category section ────────────────────────────────
-function AKCategory({ field, ak }) {
+function AKCategory({ field, ak, leadId }) {
   const meta  = FIELD_META[field];
   const T2    = 'var(--t2)';
   const isArray  = meta.identityProp !== null;
-  const isScalar = !isArray;
 
   // Collect confirmed items for this field
   let confirmedItems = [];
   if (isArray) {
     confirmedItems = (ak?.[field] || []).filter(isConfirmed);
   } else {
-    // scalar
     const scalar = ak?.[field];
     if (scalar && isConfirmed(scalar)) confirmedItems = [scalar];
   }
@@ -504,7 +556,7 @@ function AKCategory({ field, ak }) {
       {/* Items */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {confirmedItems.map((item, i) => (
-          <AKItem key={i} field={field} item={item} />
+          <AKItem key={i} field={field} item={item} leadId={leadId} />
         ))}
       </div>
     </div>
@@ -672,7 +724,7 @@ export default function AccountKnowledgeTab({ lead }) {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {FIELD_ORDER.map(field => (
-              <AKCategory key={field} field={field} ak={ak} />
+              <AKCategory key={field} field={field} ak={ak} leadId={lead.id} />
             ))}
           </div>
         )}

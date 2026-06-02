@@ -19,6 +19,7 @@ import NextBestStep from '../components/NextBestStep';
 import FollowUpModal from '../components/FollowUpModal';
 import RecordingUpload from '../components/RecordingUpload';
 import AccountKnowledgeTab, { countPendingAK, countConflicts } from '../components/AccountKnowledgeTab';
+import { getAgeBand, formatAgeLabel } from '../utils/accountKnowledgeUtils';
 
 /* ─── Shared score ring ─────────────────────────────── */
 function ScoreRing({ score, size=52 }) {
@@ -406,17 +407,25 @@ function PrepareCallDrawer({ lead, onClose, onTabChange }) {
                 {confirmedBudget && (
                   <div style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
                     <span style={{ fontSize:10, fontWeight:700, color:T2, width:70, flexShrink:0, textTransform:'uppercase', letterSpacing:'0.04em', paddingTop:1 }}>Budget</span>
-                    <span style={{ fontSize:12, color:T1 }}>
-                      {[confirmedBudget.status !== 'unknown' ? confirmedBudget.status : null, confirmedBudget.amount || null].filter(Boolean).join(' — ') || confirmedBudget.notes || '—'}
-                    </span>
+                    <div style={{ flex:1 }}>
+                      <span style={{ fontSize:12, color:T1 }}>
+                        {[confirmedBudget.status !== 'unknown' ? confirmedBudget.status : null, confirmedBudget.amount || null].filter(Boolean).join(' — ') || confirmedBudget.notes || '—'}
+                      </span>
+                      {/* Phase 7D-D: freshness label for aging/old facts */}
+                      {(() => { const lbl = formatAgeLabel(confirmedBudget); return lbl ? <span style={{ fontSize:10, color: getAgeBand(confirmedBudget) === 'old' ? '#F87171' : '#F59E0B', marginLeft:6 }}>{lbl}</span> : null; })()}
+                    </div>
                   </div>
                 )}
                 {confirmedTimeline && (
                   <div style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
                     <span style={{ fontSize:10, fontWeight:700, color:T2, width:70, flexShrink:0, textTransform:'uppercase', letterSpacing:'0.04em', paddingTop:1 }}>Timeline</span>
-                    <span style={{ fontSize:12, color:T1 }}>
-                      {[confirmedTimeline.urgency !== 'unknown' ? confirmedTimeline.urgency : null, confirmedTimeline.targetDate || null].filter(Boolean).join(' — ') || confirmedTimeline.notes || '—'}
-                    </span>
+                    <div style={{ flex:1 }}>
+                      <span style={{ fontSize:12, color:T1 }}>
+                        {[confirmedTimeline.urgency !== 'unknown' ? confirmedTimeline.urgency : null, confirmedTimeline.targetDate || null].filter(Boolean).join(' — ') || confirmedTimeline.notes || '—'}
+                      </span>
+                      {/* Phase 7D-D: freshness label for aging/old facts */}
+                      {(() => { const lbl = formatAgeLabel(confirmedTimeline); return lbl ? <span style={{ fontSize:10, color: getAgeBand(confirmedTimeline) === 'old' ? '#F87171' : '#F59E0B', marginLeft:6 }}>{lbl}</span> : null; })()}
+                    </div>
                   </div>
                 )}
                 {confirmedGoals.length > 0 && (
