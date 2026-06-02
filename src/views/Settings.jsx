@@ -91,7 +91,7 @@ export default function Settings() {
 
   const handleTestSheets = async () => {
     setTesting(true); setTestResult(null);
-    const result = await SheetsAdapter.testConnection({ sheetsId, sheetsToken });
+    const result = await SheetsAdapter.test();
     setTestResult(result);
     setTesting(false);
   };
@@ -300,38 +300,78 @@ export default function Settings() {
           {section==='sheets' && (
             <div style={{ display:'flex', flexDirection:'column', gap:18 }}>
               <SectionLabel text="Google Sheets Integration"/>
-              <div style={{ padding:'10px 14px', borderRadius:10, background:'rgba(59,130,246,0.08)', border:'1px solid rgba(59,130,246,0.2)' }}>
-                <div style={{ fontSize:12, fontWeight:600, color:T1, marginBottom:4 }}>How it works</div>
+
+              {/* Pre-configured notice */}
+              <div style={{ padding:'12px 14px', borderRadius:10, background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.2)' }}>
+                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                  <CheckCircle2 size={13} color="#10B981"/>
+                  <div style={{ fontSize:12, fontWeight:600, color:'#10B981' }}>Web App connected</div>
+                </div>
                 <div style={{ fontSize:11, color:T2, lineHeight:1.6 }}>
-                  Every lead push, activity log, and memory entry syncs to your Google Sheet. Create a sheet, share it with your service account, paste the ID below.
+                  This workspace is pre-wired to the Birdeye SDR Google Sheets Web App. New leads are pushed to <strong style={{ color:T1 }}>Fresh Leads</strong> or <strong style={{ color:T1 }}>Re-engagement</strong> automatically. Stage changes sync in real time. No API key required.
                 </div>
               </div>
+
+              {/* Endpoint display */}
               <div>
-                <FieldLabel text="Spreadsheet ID" sub="The long ID from your Google Sheets URL"/>
-                <input {...inp(sheetsId, setSheetsId, '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms')}/>
+                <FieldLabel text="Web App Endpoint" sub="Read-only — managed by your Google Apps Script deployment"/>
+                <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                  <div style={{ flex:1, padding:'9px 12px', borderRadius:8, border:`1px solid ${B1}`, background:S2, fontSize:10, color:T2, fontFamily:'JetBrains Mono,monospace', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    script.google.com/macros/s/AKfycbx…/exec
+                  </div>
+                  <button
+                    onClick={() => navigator.clipboard.writeText('https://script.google.com/macros/s/AKfycbxVOAnt_qoRJ61bvxjDUQlZSiuqgIsqZ4UMbnzNJzAxyEsN2Z54_XBCldL5hDYYZUbq/exec')}
+                    style={{ padding:'8px 10px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color:T2, cursor:'pointer', display:'flex', alignItems:'center', gap:4, fontSize:11, fontFamily:'inherit', flexShrink:0, transition:'all 0.12s' }}
+                    onMouseEnter={e=>{ e.currentTarget.style.color=T1; e.currentTarget.style.borderColor='var(--b2)'; }}
+                    onMouseLeave={e=>{ e.currentTarget.style.color=T2; e.currentTarget.style.borderColor=B1; }}
+                    title="Copy full URL">
+                    <Copy size={12}/> Copy
+                  </button>
+                </div>
               </div>
+
+              {/* Test connection */}
               <div>
-                <FieldLabel text="Access Token / Service Account Key" sub="OAuth2 token or API key with Sheets access"/>
-                <input type="password" {...inp(sheetsToken, setSheetsToken, 'ya29.…or API key…', true)} style={{ ...inp('','','').style, fontFamily:'JetBrains Mono,monospace' }}/>
+                <FieldLabel text="Connection Test" sub="Verify the Web App is reachable"/>
+                <div style={{ display:'flex', gap:10, alignItems:'center', marginTop:6 }}>
+                  <button
+                    onClick={handleTestSheets}
+                    disabled={testing}
+                    style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color: testing ? T2 : T1, fontSize:11, cursor: testing ? 'not-allowed' : 'pointer', fontFamily:'inherit', transition:'all 0.15s', opacity: testing ? 0.6 : 1 }}
+                    onMouseEnter={e=>{ if(!testing){ e.currentTarget.style.borderColor='#10B981'; e.currentTarget.style.color='#10B981'; }}}
+                    onMouseLeave={e=>{ if(!testing){ e.currentTarget.style.borderColor=B1; e.currentTarget.style.color=T1; }}}>
+                    <TestTube size={13}/>
+                    {testing ? 'Testing…' : 'Test Connection'}
+                  </button>
+                  {testResult?.ok && (
+                    <span style={{ fontSize:11, color:'#10B981', display:'flex', alignItems:'center', gap:4 }}>
+                      <CheckCircle2 size={12}/>
+                      {testResult.message || 'Connected'}
+                    </span>
+                  )}
+                  {testResult && !testResult.ok && (
+                    <span style={{ fontSize:11, color:'#EF4444', display:'flex', alignItems:'center', gap:4 }}>
+                      <AlertCircle size={12}/>
+                      {testResult.error || 'Connection failed'}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div style={{ display:'flex', gap:10, alignItems:'center' }}>
-                <button onClick={handleTestSheets} disabled={testing||!sheetsId||!sheetsToken} style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color:T2, fontSize:11, cursor:sheetsId&&sheetsToken?'pointer':'not-allowed', fontFamily:'inherit', transition:'all 0.15s' }}>
-                  <TestTube size={13}/> {testing?'Testing…':'Test Connection'}
-                </button>
-                {testResult?.ok  && <span style={{ fontSize:11, color:'#10B981', display:'flex', alignItems:'center', gap:4 }}><CheckCircle2 size={12}/> Connected!</span>}
-                {testResult && !testResult.ok && <span style={{ fontSize:11, color:'#EF4444', display:'flex', alignItems:'center', gap:4 }}><AlertCircle size={12}/> {testResult.error}</span>}
-              </div>
+
+              {/* What syncs */}
               <div>
-                <FieldLabel text="Enabled Syncs"/>
+                <FieldLabel text="What syncs automatically"/>
                 {[
-                  { key:'syncLeads',      label:'Sync Leads',       sub:'Push new leads to Leads sheet' },
-                  { key:'syncActivities', label:'Sync Activities',   sub:'Log all activities to Activities sheet' },
-                  { key:'syncMemory',     label:'Sync AI Memory',    sub:'Push memory entries to AI Memory sheet' },
-                  { key:'syncAENotes',    label:'Sync AE Notes',     sub:'Push AE Notes on save' },
-                ].map(({ key, label, sub })=>(
-                  <Row key={key} label={label} sub={sub}>
-                    <Toggle on={settings[key]!==false} onChange={v=>updateSettings({[key]:v})}/>
-                  </Row>
+                  { icon:'📥', label:'New leads',     sub:'Pushed to Fresh Leads or Re-engagement tab on creation'  },
+                  { icon:'🔄', label:'Stage changes', sub:'Status column updated in sheet whenever a lead stage changes' },
+                ].map(({ icon, label, sub }) => (
+                  <div key={label} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 0', borderBottom:`1px solid ${dark?'#21262D':'#F3F4F5'}` }}>
+                    <span style={{ fontSize:16, flexShrink:0, marginTop:1 }}>{icon}</span>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:500, color:T1 }}>{label}</div>
+                      <div style={{ fontSize:11, color:T2, marginTop:1 }}>{sub}</div>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>

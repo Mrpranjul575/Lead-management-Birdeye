@@ -1,194 +1,131 @@
 /**
- * GOOGLE SHEETS SERVICE LAYER
- * All data operations against a connected Google Sheet.
- * Uses Google Sheets API v4 via fetch — no SDK needed.
+ * GOOGLE SHEETS WEB APP ADAPTER
+ * Sends data to the deployed Google Apps Script Web App.
+ * No API key required — the Web App URL is the only endpoint.
  *
- * Sheet structure expected:
- *   Leads | Activities | AE Notes | AI Memory | Cadences | Settings | Reports
+ * Sheet tabs:
+ *   Fresh Leads   — new inbound leads  (mode: 'fresh')
+ *   Re-engagement — cold leads         (mode: 'reeng')
  *
- * To connect: paste your Google Sheets ID + service account key in Settings.
+ * The Web App accepts POST requests with a JSON body.
+ * GET requests are used for connection test and email lookup.
  */
 
-const SHEETS = {
-  LEADS:      'Leads',
-  ACTIVITIES: 'Activities',
-  AE_NOTES:   'AE Notes',
-  AI_MEMORY:  'AI Memory',
-  CADENCES:   'Cadences',
-  SETTINGS:   'Settings',
-  REPORTS:    'Reports',
-};
+const SHEETS_URL = 'https://script.google.com/macros/s/AKfycbxVOAnt_qoRJ61bvxjDUQlZSiuqgIsqZ4UMbnzNJzAxyEsN2Z54_XBCldL5hDYYZUbq/exec';
 
-// ── Headers per sheet ─────────────────────────────────────────────────────────
-const HEADERS = {
-  Leads: [
-    'id','business','contact','email','phone','website','city','industry',
-    'intent','aiScore','reviews','rating','aiVisibility','compGap',
-    'stage','nextAction','lastTouch','cadenceDay','cadenceTotal',
-    'competitor','keyword','gmbUrl','salesloftUrl','mqlDate',
-    'tags','createdAt','updatedAt',
-  ],
-  Activities: ['activityId','leadId','leadBusiness','timestamp','type','summary','outcome','details','source'],
-  'AE Notes': ['leadId','business','notes','updatedAt'],
-  'AI Memory': ['id','leadId','business','text','tag','date'],
-  Cadences: ['id','name','description','steps'],
-};
-
-// ── Low-level fetch wrapper ────────────────────────────────────────────────────
-async function sheetsRequest(method, path, body, apiKey) {
-  const BASE = 'https://sheets.googleapis.com/v4/spreadsheets';
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(()=>({}));
-    throw new Error(err?.error?.message || `Sheets API ${res.status}`);
-  }
-  return res.json();
-}
-
-// ── Append a row ──────────────────────────────────────────────────────────────
-async function appendRow(spreadsheetId, sheet, values, apiKey) {
-  return sheetsRequest('POST',
-    `/${spreadsheetId}/values/${encodeURIComponent(sheet)}!A1:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-    { values: [values] },
-    apiKey
-  );
-}
-
-// ── Read all rows ─────────────────────────────────────────────────────────────
-async function readSheet(spreadsheetId, sheet, apiKey) {
-  const data = await sheetsRequest('GET',
-    `/${spreadsheetId}/values/${encodeURIComponent(sheet)}`,
-    null,
-    apiKey
-  );
-  const rows = data.values || [];
-  if (rows.length < 2) return [];
-  const headers = rows[0];
-  return rows.slice(1).map(row =>
-    Object.fromEntries(headers.map((h, i) => [h, row[i] || '']))
-  );
-}
-
-// ── Ensure sheet has headers ──────────────────────────────────────────────────
-async function ensureHeaders(spreadsheetId, sheet, apiKey) {
-  const headers = HEADERS[sheet];
-  if (!headers) return;
-  try {
-    const data = await sheetsRequest('GET',
-      `/${spreadsheetId}/values/${encodeURIComponent(sheet)}!A1:A1`,
-      null, apiKey
-    );
-    if (!data.values?.length) {
-      await sheetsRequest('PUT',
-        `/${spreadsheetId}/values/${encodeURIComponent(sheet)}!A1?valueInputOption=USER_ENTERED`,
-        { values: [headers] },
-        apiKey
-      );
-    }
-  } catch {}
-}
-
-// ── Public API ────────────────────────────────────────────────────────────────
 export const SheetsAdapter = {
 
   /**
-   * Push a single lead to the Leads sheet
+   * Push a new lead to Fresh Leads or Re-engagement tab.
+   * mode is derived from lead.stage: Re-engage → 'reeng', everything else → 'fresh'.
    */
-  async pushLead(lead, settings) {
-    const { sheetsId, sheetsToken } = settings;
-    if (!sheetsId || !sheetsToken) return { ok:false, error:'No Sheets ID or token configured' };
+  async pushLead(lead) {
+    const competitors = lead.intelligence?.competitors || [];
+    const body = {
+      rawLead:      lead.aeNotes        || '',
+      rawSeo:       lead.seoReport      || '',
+      rawAi:        lead.aiReport       || '',
+      name:         lead.contact        || '',
+      email:        lead.email          || '',
+      phone:        lead.phone          || '',
+      businessName: lead.business       || '',
+      address:      lead.city           || '',
+      rating:       lead.rating         || '',
+      reviews:      lead.reviews        || '',
+      keyword:      lead.keyword        || '',
+      leadUrl:      lead.salesloftUrl   || '',
+      gmbUrl:       lead.gmbUrl         || '',
+      competitor1:  competitors[0]      || lead.competitor || '',
+      competitor2:  competitors[1]      || '',
+      email1:       lead.generatedEmails?.email1 || '',
+      sms1:         lead.generatedEmails?.sms1   || '',
+      email2:       lead.generatedEmails?.email2 || '',
+      sms2:         lead.generatedEmails?.sms2   || '',
+      email3:       lead.generatedEmails?.email3 || '',
+      dateAdded:    lead.mqlDate || new Date().toLocaleDateString('en-US', {
+                      year: 'numeric', month: 'short', day: 'numeric',
+                    }),
+      status:       lead.stage  || 'NEW',
+      system:       'SDR Workspace',
+      aeNotes:      lead.aeNotes || '',
+      mode:         lead.stage === 'Re-engage' ? 'reeng' : 'fresh',
+    };
     try {
-      await ensureHeaders(sheetsId, 'Leads', sheetsToken);
-      const row = HEADERS.Leads.map(h => {
-        if (h === 'tags') return JSON.stringify(lead.tags || []);
-        if (h === 'updatedAt') return new Date().toISOString();
-        if (h === 'createdAt') return lead.createdAt || new Date().toISOString();
-        return String(lead[h] ?? '');
+      const res  = await fetch(SHEETS_URL, {
+        method: 'POST',
+        body:   JSON.stringify(body),
       });
-      await appendRow(sheetsId, 'Leads', row, sheetsToken);
-      return { ok:true };
-    } catch (e) { return { ok:false, error:e.message }; }
+      const json = await res.json();
+      return { ok: json.success, error: json.error };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   },
 
   /**
-   * Push an activity entry
+   * Update lead status in sheet (called when lead.stage changes).
    */
-  async pushActivity(leadId, leadBusiness, activity, settings) {
-    const { sheetsId, sheetsToken } = settings;
-    if (!sheetsId || !sheetsToken) return { ok:false, error:'No Sheets configured' };
+  async updateStatus(email, status) {
     try {
-      await ensureHeaders(sheetsId, 'Activities', sheetsToken);
-      const row = [
-        activity.activityId, leadId, leadBusiness,
-        activity.timestamp, activity.type, activity.summary,
-        activity.outcome || '', JSON.stringify(activity.details || {}), activity.source || 'manual',
-      ];
-      await appendRow(sheetsId, 'Activities', row, sheetsToken);
-      return { ok:true };
-    } catch (e) { return { ok:false, error:e.message }; }
+      const res  = await fetch(SHEETS_URL, {
+        method: 'POST',
+        body:   JSON.stringify({
+          action:    'updateStatus',
+          email,
+          status,
+          updatedAt: new Date().toLocaleDateString('en-US', {
+                       year: 'numeric', month: 'short', day: 'numeric',
+                     }),
+        }),
+      });
+      const json = await res.json();
+      return { ok: json.success };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   },
 
   /**
-   * Push AE notes
+   * Push AE notes update — re-pushes the full lead row.
    */
-  async pushAENotes(lead, settings) {
-    const { sheetsId, sheetsToken } = settings;
-    if (!sheetsId || !sheetsToken) return { ok:false, error:'No Sheets configured' };
-    try {
-      await ensureHeaders(sheetsId, 'AE Notes', sheetsToken);
-      await appendRow(sheetsId, 'AE Notes',
-        [lead.id, lead.business, lead.aeNotes || '', new Date().toISOString()],
-        sheetsToken
-      );
-      return { ok:true };
-    } catch (e) { return { ok:false, error:e.message }; }
+  async pushAENotes(lead) {
+    return this.pushLead({ ...lead });
   },
 
   /**
-   * Push a memory entry
+   * Push lead with generated email/SMS content attached.
    */
-  async pushMemory(leadId, leadBusiness, entry, settings) {
-    const { sheetsId, sheetsToken } = settings;
-    if (!sheetsId || !sheetsToken) return { ok:false, error:'No Sheets configured' };
-    try {
-      await ensureHeaders(sheetsId, 'AI Memory', sheetsToken);
-      await appendRow(sheetsId, 'AI Memory',
-        [entry.id, leadId, leadBusiness, entry.text, entry.tag || '', entry.date || ''],
-        sheetsToken
-      );
-      return { ok:true };
-    } catch (e) { return { ok:false, error:e.message }; }
+  async pushGeneratedContent(lead, content) {
+    return this.pushLead({
+      ...lead,
+      generatedEmails: content,
+    });
   },
 
   /**
-   * Read all leads from sheet
+   * Search sheet by email address (GET request).
    */
-  async readLeads(settings) {
-    const { sheetsId, sheetsToken } = settings;
-    if (!sheetsId || !sheetsToken) return { ok:false, error:'No Sheets configured', data:[] };
+  async findByEmail(email) {
     try {
-      const rows = await readSheet(sheetsId, 'Leads', sheetsToken);
-      return { ok:true, data: rows.map(r => ({ ...r, tags: JSON.parse(r.tags||'[]') })) };
-    } catch (e) { return { ok:false, error:e.message, data:[] }; }
+      const res  = await fetch(`${SHEETS_URL}?email=${encodeURIComponent(email)}`);
+      const json = await res.json();
+      return json;
+    } catch (e) {
+      return { found: false, error: e.message };
+    }
   },
 
   /**
-   * Test connection
+   * Test connection — simple GET to verify the Web App is reachable.
    */
-  async testConnection(settings) {
-    const { sheetsId, sheetsToken } = settings;
-    if (!sheetsId || !sheetsToken) return { ok:false, error:'Missing Sheets ID or token' };
+  async test() {
     try {
-      await sheetsRequest('GET', `/${sheetsId}?fields=spreadsheetId,properties.title`, null, sheetsToken);
-      return { ok:true };
-    } catch (e) { return { ok:false, error:e.message }; }
+      const res  = await fetch(SHEETS_URL);
+      const json = await res.json();
+      return { ok: true, message: json.status || 'Connected' };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   },
 };
 

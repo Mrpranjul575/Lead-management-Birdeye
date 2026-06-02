@@ -64,7 +64,16 @@ export function AppProvider({ children }) {
 
   // ── Core lead CRUD ──
   const updateLead = useCallback((id, patch) => {
-    setLeads(ls => ls.map(l => l.id===id ? applyScore({ ...l, ...patch }) : l));
+    setLeads(ls => {
+      // If stage is changing, fire Sheets status sync before returning new array
+      if (patch.stage) {
+        const lead = ls.find(l => l.id === id);
+        if (lead?.email) {
+          SheetsAdapter.updateStatus(lead.email, patch.stage).catch(() => {});
+        }
+      }
+      return ls.map(l => l.id===id ? applyScore({ ...l, ...patch }) : l);
+    });
     setActiveLead(al => al?.id===id ? applyScore({ ...al, ...patch }) : al);
   }, []);
 
@@ -86,12 +95,9 @@ export function AppProvider({ children }) {
       seqLog:     lead.seqLog     || {},
     }));
     setLeads(ls => [newLead, ...ls]);
-    // Push to Google Sheets if configured
+    // Push to Google Sheets Web App
     setTimeout(() => {
-      const s = loadSettings();
-      if (s.sheetsId && s.sheetsToken && s.syncLeads !== false) {
-        SheetsAdapter.pushLead(newLead, s).catch(() => {});
-      }
+      SheetsAdapter.pushLead(newLead).catch(() => {});
     }, 0);
     return newLead;
   }, []);
@@ -475,15 +481,6 @@ export function AppProvider({ children }) {
       ? { ...al, activities: [entry, ...(al.activities||[])] }
       : al
     );
-    // Push activity to Sheets
-    setTimeout(() => {
-      try {
-        const s = loadSettings();
-        if (s.sheetsId && s.sheetsToken && s.syncActivities !== false) {
-          SheetsAdapter.pushActivity(leadId, '', entry, s).catch(() => {});
-        }
-      } catch {}
-    }, 0);
     return entry;
   }, []);
 
