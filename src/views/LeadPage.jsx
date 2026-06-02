@@ -14,6 +14,7 @@ import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity } from '../data/schem
 import { SEQ_PLAN } from '../data/mockData';
 import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
 import { deriveSignals } from '../utils/intelligenceEngine';
+import ActionCenter from '../components/ActionCenter';
 import NextBestStep from '../components/NextBestStep';
 import FollowUpModal from '../components/FollowUpModal';
 import RecordingUpload from '../components/RecordingUpload';
@@ -542,26 +543,14 @@ function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording
       {/* Bottom row — Quick Actions, AI Copilot, Lead Memory, Files */}
       <div style={{ gridColumn:'span 4', display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:14 }}>
 
-        {/* Quick Actions */}
-        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'14px' }}>
-          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:10 }}>Quick Actions</div>
-          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-            {[
-              { icon:PhoneCall,     label:'Add Call Notes',  action:onCallNotes },
-              { icon:Mail,          label:'Send Email',      action:()=>openCopilot('email',lead) },
-              { icon:Upload,        label:'Upload Recording',action:onRecording },
-              { icon:MessageSquare, label:'Log SMS',         action:()=>openCopilot('sms',lead) },
-              { icon:Plus,          label:'Add Note',        action:()=>onTabChange('memory') },
-              { icon:FileText,      label:'Create Task',     action:onFollowUp },
-            ].map(({ icon:Icon, label, action })=>(
-              <button key={label} onClick={action} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px', borderRadius:7, border:'1px solid var(--b1)', background:'transparent', cursor:'pointer', color:'var(--t1)', fontSize:11, fontFamily:'inherit', transition:'all 0.12s', textAlign:'left' }}
-                onMouseEnter={e=>{e.currentTarget.style.background='var(--s3)'; e.currentTarget.style.borderColor='rgba(91,63,200,0.3)';}}
-                onMouseLeave={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.borderColor='var(--b1)';}}>
-                <Icon size={12} color="#7C5CE8"/>{label}
-              </button>
-            ))}
-          </div>
-        </div>
+        {/* Action Center — replaces static Quick Actions card */}
+        <ActionCenter
+          lead={lead}
+          onCallNotes={onCallNotes}
+          onFollowUp={onFollowUp}
+          onRecording={onRecording}
+          onTabChange={onTabChange}
+        />
 
         {/* AI Copilot */}
         <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'14px' }}>
@@ -967,8 +956,9 @@ function MemoryTab({ lead }) {
 
 /* ─── Tab: Cadence ─── */
 function CadenceTab({ lead }) {
-  const { markStepComplete, advanceCadenceDay } = useApp();
+  const { markStepComplete, advanceCadenceDay, openCopilot } = useApp();
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const CHANNEL_TO_COPILOT_MODE = { Email:'email', SMS:'sms', VM:'voicemail', LinkedIn:'linkedin' };
 
   const currentDay   = lead.cadenceDay  || 0;
   const totalDays    = lead.cadenceTotal || 7;
@@ -1045,13 +1035,23 @@ function CadenceTab({ lead }) {
 
               {/* Actions / status badges */}
               {pending && (
-                <button
-                  onClick={() => markStepComplete(lead.id, step.key, currentDay)}
-                  style={{ fontSize:10, padding:'3px 10px', borderRadius:99, border:'1px solid rgba(16,185,129,0.4)', background:'rgba(16,185,129,0.1)', color:'#10B981', cursor:'pointer', fontFamily:'inherit', fontWeight:600, transition:'all 0.12s', flexShrink:0 }}
-                  onMouseEnter={e => { e.currentTarget.style.background='rgba(16,185,129,0.2)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background='rgba(16,185,129,0.1)'; }}>
-                  Mark Done
-                </button>
+                <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                  <button
+                    onClick={() => openCopilot(CHANNEL_TO_COPILOT_MODE[step.channel] || 'email', lead)}
+                    title={`Generate ${step.channel} in AI Copilot`}
+                    style={{ fontSize:10, padding:'3px 10px', borderRadius:99, border:'1px solid rgba(91,63,200,0.4)', background:'rgba(91,63,200,0.1)', color:'#7C5CE8', cursor:'pointer', fontFamily:'inherit', fontWeight:600, transition:'all 0.12s', flexShrink:0 }}
+                    onMouseEnter={e => { e.currentTarget.style.background='rgba(91,63,200,0.2)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background='rgba(91,63,200,0.1)'; }}>
+                    Generate ✨
+                  </button>
+                  <button
+                    onClick={() => markStepComplete(lead.id, step.key, currentDay)}
+                    style={{ fontSize:10, padding:'3px 10px', borderRadius:99, border:'1px solid rgba(16,185,129,0.4)', background:'rgba(16,185,129,0.1)', color:'#10B981', cursor:'pointer', fontFamily:'inherit', fontWeight:600, transition:'all 0.12s', flexShrink:0 }}
+                    onMouseEnter={e => { e.currentTarget.style.background='rgba(16,185,129,0.2)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background='rgba(16,185,129,0.1)'; }}>
+                    Mark Done
+                  </button>
+                </div>
               )}
               {done && <span style={{ fontSize:10, color:'#10B981', fontWeight:600, flexShrink:0 }}>✓ Done</span>}
               {isCur && (

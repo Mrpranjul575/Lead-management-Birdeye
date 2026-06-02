@@ -55,6 +55,22 @@ function buildCadenceSuggestion(step, cadenceDay) {
   };
 }
 
+/**
+ * deriveNextBestSuggestions — single source of truth for action recommendations.
+ * Used by both NextBestStep (display) and ActionCenter (execution).
+ * Priority: Demo Booked → Active cadence steps → Stage fallback.
+ */
+export function deriveNextBestSuggestions(lead) {
+  const pendingCadenceSteps = (lead.cadenceDay > 0) ? getPendingSteps(lead) : [];
+  const hasCadence = pendingCadenceSteps.length > 0;
+  const isDemo     = lead.stage === 'Demo Booked';
+  return isDemo
+    ? (SUGGESTIONS['Demo Booked'] || SUGGESTIONS['New'])
+    : hasCadence
+      ? pendingCadenceSteps.slice(0, 2).map(s => buildCadenceSuggestion(s, lead.cadenceDay))
+      : (SUGGESTIONS[lead.stage] || SUGGESTIONS['New']);
+}
+
 export default function NextBestStep({ lead, compact=false }) {
   const { theme, openCopilot } = useApp();
   const dark = theme==='dark';
@@ -69,11 +85,7 @@ export default function NextBestStep({ lead, compact=false }) {
   const hasCadence  = pendingCadenceSteps.length > 0;
   const isDemo      = lead.stage === 'Demo Booked';
 
-  const suggestions = isDemo
-    ? (SUGGESTIONS['Demo Booked'] || SUGGESTIONS['New'])                            // 1. Critical lifecycle
-    : hasCadence
-      ? pendingCadenceSteps.slice(0, 2).map(s => buildCadenceSuggestion(s, lead.cadenceDay)) // 2. Cadence
-      : (SUGGESTIONS[lead.stage] || SUGGESTIONS['New']);                            // 3. Stage fallback
+  const suggestions = deriveNextBestSuggestions(lead);
   const top = suggestions[0];
   const Icon = top.icon;
   const urg  = URGENCY_STYLE[top.urgency];
