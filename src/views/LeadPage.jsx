@@ -11,7 +11,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { STAGES_ALL, STAGE_STYLE } from '../constants/stages';
 import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity, isConfirmed } from '../data/schema';
-import { SEQ_PLAN } from '../data/mockData';
+import { SEQ_PLAN } from '../constants/cadencePlan';
 import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
 import { deriveSignals, deriveActivityIntelligence } from '../utils/intelligenceEngine';
 import ActionCenter from '../components/ActionCenter';

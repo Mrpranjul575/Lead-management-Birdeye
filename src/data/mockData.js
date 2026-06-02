@@ -276,20 +276,7 @@ export const MOCK_STATS = {
   lost: 12,
 };
 
-export const SEQ_PLAN = [
-  { key: 'E1',   label: 'Email 1',     day: 1,  channel: 'Email' },
-  { key: 'E2',   label: 'Email 2',     day: 3,  channel: 'Email' },
-  { key: 'E3',   label: 'Email 3',     day: 5,  channel: 'Email' },
-  { key: 'E4',   label: 'Email 4',     day: 7,  channel: 'Email' },
-  { key: 'E5',   label: 'Email 5',     day: 10, channel: 'Email' },
-  { key: 'E6',   label: 'Email 6',     day: 14, channel: 'Email' },
-  { key: 'E7',   label: 'Email 7',     day: 21, channel: 'Email' },
-  { key: 'SMS1', label: 'SMS 1',       day: 2,  channel: 'SMS'   },
-  { key: 'SMS2', label: 'SMS 2',       day: 6,  channel: 'SMS'   },
-  { key: 'SMS3', label: 'SMS 3',       day: 9,  channel: 'SMS'   },
-  { key: 'SMS4', label: 'SMS 4',       day: 13, channel: 'SMS'   },
-  { key: 'SMS5', label: 'SMS 5',       day: 20, channel: 'SMS'   },
-  { key: 'VM1',  label: 'Voicemail 1', day: 4,  channel: 'VM'    },
-  { key: 'VM2',  label: 'Voicemail 2', day: 8,  channel: 'VM'    },
-  { key: 'VM3',  label: 'Voicemail 3', day: 15, channel: 'VM'    },
-];
+// ── SEQ_PLAN has moved to src/constants/cadencePlan.js ───────────────────────
+// Re-exported here for backward compatibility only. Import from the canonical
+// location in all new code: import { SEQ_PLAN } from '../constants/cadencePlan'
+export { SEQ_PLAN } from '../constants/cadencePlan';

@@ -1,8 +1,16 @@
 import { SheetsAdapter } from '../services/sheetsAdapter';
-import { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { MOCK_LEADS, MOCK_CADENCES, SEQ_PLAN } from '../data/mockData';
-import { migrateLead, createActivity, createIntelligence, createAccountKnowledge, mergeAccountKnowledge, isConfirmed, computeAiScore, applyScore, CURRENT_SCORE_VERSION, INTELLIGENCE_REJECTED_FIELDS } from '../data/schema';
+import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
+import { MOCK_LEADS, MOCK_CADENCES } from '../data/mockData';
+import { SEQ_PLAN } from '../constants/cadencePlan';
+import { migrateLead, createActivity, createAccountKnowledge, mergeAccountKnowledge, applyScore, CURRENT_SCORE_VERSION, INTELLIGENCE_REJECTED_FIELDS } from '../data/schema';
 import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
+import {
+  applyAKReview,
+  confirmAllPending,
+  applyConflictResolution,
+  applySupersede,
+  applyReverify,
+} from '../utils/accountKnowledgeMutations';
 
 const AppCtx = createContext(null);
 const STORAGE_KEY = 'birdeye_sdr_leads_v4';
@@ -41,17 +49,24 @@ function loadSettings() {
 }
 
 export function AppProvider({ children }) {
-  const [theme,       setTheme]       = useState('dark');
-  const [view,        setView]        = useState('workqueue');
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [leads,       setLeads]       = useState(loadLeads);
-  const [cadences,    setCadences]    = useState(loadCadences);
-  const [activeLead,  setActiveLead]  = useState(null);
-  const [selected,    setSelected]    = useState(new Set());
-  const [copilot,     setCopilot]     = useState({ open:false, mode:null, lead:null });
-  const [search,      setSearch]      = useState('');
-  const [settings,    setSettings]    = useState(loadSettings);
-  const [clipSearch,  setClipSearch]  = useState(false); // clipboard search modal
+  const [theme,        setTheme]        = useState('dark');
+  const [view,         setView]         = useState('workqueue');
+  const [sidebarOpen,  setSidebarOpen]  = useState(true);
+  const [leads,        setLeads]        = useState(loadLeads);
+  const [cadences,     setCadences]     = useState(loadCadences);
+  const [activeLeadId, setActiveLeadId] = useState(null); // P1-A: single source of truth
+  const [selected,     setSelected]     = useState(new Set());
+  const [copilot,      setCopilot]      = useState({ open:false, mode:null, lead:null });
+  const [search,       setSearch]       = useState('');
+  const [settings,     setSettings]     = useState(loadSettings);
+  const [clipSearch,   setClipSearch]   = useState(false);
+
+  // P1-A: activeLead is derived — leads array is the single source of truth.
+  // Any mutation to leads[] is immediately reflected here without dual-writes.
+  const activeLead = useMemo(
+    () => leads.find(l => l.id === activeLeadId) ?? null,
+    [leads, activeLeadId]
+  );
 
   // ── Persistence ──
   useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(leads)); } catch {} }, [leads]);
@@ -74,7 +89,6 @@ export function AppProvider({ children }) {
       }
       return ls.map(l => l.id===id ? applyScore({ ...l, ...patch }) : l);
     });
-    setActiveLead(al => al?.id===id ? applyScore({ ...al, ...patch }) : al);
   }, []);
 
   const updateLeadMerged = useCallback((id, ...patches) => {
@@ -124,10 +138,6 @@ export function AppProvider({ children }) {
       if (l.id !== leadId) return l;
       return applyScore({ ...l, intelligence: { ...l.intelligence, ...safePatch, lastUpdated: new Date().toISOString() } });
     }));
-    setActiveLead(al => {
-      if (al?.id !== leadId) return al;
-      return applyScore({ ...al, intelligence: { ...al.intelligence, ...safePatch, lastUpdated: new Date().toISOString() } });
-    });
   }, []);
 
   // ── Account Knowledge ──
@@ -144,108 +154,19 @@ export function AppProvider({ children }) {
       );
       return { ...l, accountKnowledge: merged };
     }));
-    setActiveLead(al => {
-      if (al?.id !== leadId) return al;
-      const merged = mergeAccountKnowledge(
-        al.accountKnowledge || createAccountKnowledge(),
-        patch
-      );
-      return { ...al, accountKnowledge: merged };
-    });
   }, []);
 
   // ── Account Knowledge review actions — Phase 7C-2B ──────────────────────
-  //
-  // confirmAccountKnowledgeFact(leadId, field, identityKey, updatedValues?)
-  //   Sets reviewStatus → 'confirmed', reviewedAt → now on the matched item.
-  //   For arrays: finds item by identityKey (name / goal / objection).
-  //   For scalars (budget, purchaseTimeline): identityKey is ignored (null).
-  //   updatedValues: optional partial object merged into the item before
-  //     confirming — supports the "add manually" path in the AK tab where
-  //     the SDR supplies full values on confirm.
-  //   applyScore() intentionally NOT called — scoring does not read AK.
-  //
-  // dismissAccountKnowledgeFact(leadId, field, identityKey)
-  //   Sets reviewStatus → 'dismissed', reviewedAt → now.
-  //   Item is retained in the array for audit trail.
-  //   mergeAccountKnowledge() dismissed-skip ensures re-extraction is possible.
-  //
-  // bulkConfirmAccountKnowledge(leadId)
-  //   Confirms every pending item across all fields in one batch update.
-  //   Single setState call per store (leads + activeLead) for performance.
-
-  // ── Identity-key lookup helpers (pure, not exported) ──
-  // Each field uses a different property as its dedup identity key.
-  const AK_IDENTITY_KEY = {
-    competitors:         'name',
-    decisionMakers:      'name',
-    currentTools:        'name',
-    businessGoals:       'goal',
-    recurringObjections: 'objection',
-  };
-  const AK_ARRAY_FIELDS   = new Set(Object.keys(AK_IDENTITY_KEY));
-  const AK_SCALAR_FIELDS  = new Set(['budget', 'purchaseTimeline']);
-
-  // Applies reviewStatus + reviewedAt update to a single accountKnowledge,
-  // returning a new object. Pure — does not mutate.
-  function applyAKReview(ak, field, identityKey, reviewStatus, updatedValues = {}) {
-    if (!ak) return ak;
-    const now = new Date().toISOString();
-
-    if (AK_SCALAR_FIELDS.has(field)) {
-      if (!ak[field]) return ak;
-      return {
-        ...ak,
-        [field]: { ...ak[field], ...updatedValues, reviewStatus, reviewedAt: now },
-      };
-    }
-
-    if (AK_ARRAY_FIELDS.has(field)) {
-      const keyProp = AK_IDENTITY_KEY[field];
-      const keyVal  = identityKey?.toLowerCase().trim();
-      return {
-        ...ak,
-        [field]: (ak[field] || []).map(item =>
-          item[keyProp]?.toLowerCase().trim() === keyVal
-            ? { ...item, ...updatedValues, reviewStatus, reviewedAt: now }
-            : item
-        ),
-      };
-    }
-
-    return ak; // unknown field — no-op
-  }
-
-  // Confirms every pending item across all AK fields in one pass.
-  function confirmAllPending(ak) {
-    if (!ak) return ak;
-    const now = new Date().toISOString();
-    const confirmItem = item =>
-      item.reviewStatus === 'pending'
-        ? { ...item, reviewStatus: 'confirmed', reviewedAt: now }
-        : item;
-
-    return {
-      ...ak,
-      competitors:         (ak.competitors         || []).map(confirmItem),
-      decisionMakers:      (ak.decisionMakers      || []).map(confirmItem),
-      currentTools:        (ak.currentTools        || []).map(confirmItem),
-      businessGoals:       (ak.businessGoals       || []).map(confirmItem),
-      recurringObjections: (ak.recurringObjections || []).map(confirmItem),
-      budget:          ak.budget?.reviewStatus          === 'pending' ? { ...ak.budget,          reviewStatus: 'confirmed', reviewedAt: now } : ak.budget,
-      purchaseTimeline:ak.purchaseTimeline?.reviewStatus === 'pending' ? { ...ak.purchaseTimeline, reviewStatus: 'confirmed', reviewedAt: now } : ak.purchaseTimeline,
-    };
-  }
+  // Pure mutation helpers (applyAKReview, confirmAllPending, applyConflictResolution,
+  // applySupersede, applyReverify) now live in utils/accountKnowledgeMutations.js.
+  // AppContext is the orchestration layer only — it decides which lead to update
+  // and when to persist; it does not implement the mutation logic itself.
 
   const confirmAccountKnowledgeFact = useCallback((leadId, field, identityKey, updatedValues = {}) => {
     setLeads(ls => ls.map(l => {
       if (l.id !== leadId) return l;
       return { ...l, accountKnowledge: applyAKReview(l.accountKnowledge, field, identityKey, 'confirmed', updatedValues) };
     }));
-    setActiveLead(al => {
-      if (al?.id !== leadId) return al;
-      return { ...al, accountKnowledge: applyAKReview(al.accountKnowledge, field, identityKey, 'confirmed', updatedValues) };
-    });
   }, []);
 
   const dismissAccountKnowledgeFact = useCallback((leadId, field, identityKey) => {
@@ -253,10 +174,6 @@ export function AppProvider({ children }) {
       if (l.id !== leadId) return l;
       return { ...l, accountKnowledge: applyAKReview(l.accountKnowledge, field, identityKey, 'dismissed') };
     }));
-    setActiveLead(al => {
-      if (al?.id !== leadId) return al;
-      return { ...al, accountKnowledge: applyAKReview(al.accountKnowledge, field, identityKey, 'dismissed') };
-    });
   }, []);
 
   const bulkConfirmAccountKnowledge = useCallback((leadId) => {
@@ -264,148 +181,13 @@ export function AppProvider({ children }) {
       if (l.id !== leadId) return l;
       return { ...l, accountKnowledge: confirmAllPending(l.accountKnowledge) };
     }));
-    setActiveLead(al => {
-      if (al?.id !== leadId) return al;
-      return { ...al, accountKnowledge: confirmAllPending(al.accountKnowledge) };
-    });
   }, []);
-
-  // ── Account Knowledge conflict resolution — Phase 7D-B ───────────────────
-  //
-  // resolveConflict(leadId, field, identityKey, resolution)
-  //   resolution: 'keep' | 'accept'
-  //   Both paths clear conflictWith and stamp reviewedAt = now.
-  //   'keep': confirmed values are correct. conflictWith discarded.
-  //   'accept': conflictWith factual values applied over confirmed entry.
-  //             Original source/sourceDate preserved (Modification 1) —
-  //             the SDR validated an extraction; they did not originate the fact.
-  //   applyScore() NOT called — scoring does not read accountKnowledge.
-  //
-  //   conflictWith payload shapes per field (for Phase 7D-C rendering):
-  //     competitors:      { strength, context, source, sourceDate, extractedFrom }
-  //     decisionMakers:   { role, authority, notes, source, sourceDate, extractedFrom }
-  //     currentTools:     { category, source, sourceDate, extractedFrom }
-  //     budget:           { status, amount, notes, source, sourceDate, extractedFrom }
-  //     purchaseTimeline: { urgency, targetDate, notes, source, sourceDate, extractedFrom }
-  //   businessGoals and recurringObjections carry no conflictWith (no sub-values).
-  //
-  //   Future: resolvedAt (ISO timestamp) to be added in a later phase.
-  //   Conflict resolution and fact review are distinct lifecycle events.
-  //   resolvedAt will record when a conflict was explicitly settled, separate
-  //   from reviewedAt which records the last SDR touch on the confirmed value.
-  //
-  // keepExistingFact(leadId, field, identityKey)
-  //   Convenience wrapper for resolveConflict(..., 'keep').
-  //   Named for call-site clarity in the conflict UI: the SDR is explicitly
-  //   saying "what I have is correct."
-  //
-  // supersedeFact(leadId, field, oldKey, newItem)
-  //   Array fields only. Marks old entry as 'superseded' (retained for history),
-  //   appends newItem as 'confirmed'. Use when the old fact was true but is
-  //   no longer true (e.g. switched tools, new decision maker).
-  //   Distinct from resolveConflict('accept') which updates values in-place:
-  //     resolveConflict('accept') → old value was wrong, correct it
-  //     supersedeFact()           → old value was right, now replaced
-  //   Scalar fields (budget, purchaseTimeline) do not support supersession —
-  //   use resolveConflict('accept') for scalars.
-
-  // conflictWith factual field sets per array type — used by applyConflictResolution
-  // to extract only factual values from conflictWith, excluding provenance metadata.
-  const CONFLICT_FACT_FIELDS = {
-    competitors:      ['strength', 'context'],
-    decisionMakers:   ['role', 'authority', 'notes'],
-    currentTools:     ['category'],
-    budget:           ['status', 'amount', 'notes'],
-    purchaseTimeline: ['urgency', 'targetDate', 'notes'],
-  };
-
-  /**
-   * applyConflictResolution — pure helper.
-   * Returns new accountKnowledge with conflict on the matched item resolved.
-   * 'keep' : clears conflictWith, stamps reviewedAt. No value change.
-   * 'accept': applies conflictWith factual values over confirmed entry,
-   *           clears conflictWith, stamps reviewedAt.
-   *           Original source/sourceDate preserved per Modification 1.
-   */
-  function applyConflictResolution(ak, field, identityKey, resolution) {
-    if (!ak) return ak;
-    const now = new Date().toISOString();
-    const factFields = CONFLICT_FACT_FIELDS[field] || [];
-
-    if (AK_SCALAR_FIELDS.has(field)) {
-      const existing = ak[field];
-      if (!existing || !existing.conflictWith) return ak;
-      if (resolution === 'keep') {
-        return { ...ak, [field]: { ...existing, conflictWith: null, reviewedAt: now } };
-      }
-      // 'accept': pick only factual fields from conflictWith, preserve source provenance
-      const factsToApply = {};
-      for (const f of factFields) {
-        if (existing.conflictWith[f] !== undefined) factsToApply[f] = existing.conflictWith[f];
-      }
-      return { ...ak, [field]: { ...existing, ...factsToApply, conflictWith: null, reviewedAt: now } };
-    }
-
-    if (AK_ARRAY_FIELDS.has(field)) {
-      const keyProp = AK_IDENTITY_KEY[field];
-      const keyVal  = identityKey?.toLowerCase().trim();
-      return {
-        ...ak,
-        [field]: (ak[field] || []).map(item => {
-          if (item[keyProp]?.toLowerCase().trim() !== keyVal) return item;
-          if (!item.conflictWith) return item;
-          if (resolution === 'keep') {
-            return { ...item, conflictWith: null, reviewedAt: now };
-          }
-          // 'accept': pick only factual fields from conflictWith, preserve source provenance
-          const factsToApply = {};
-          for (const f of factFields) {
-            if (item.conflictWith[f] !== undefined) factsToApply[f] = item.conflictWith[f];
-          }
-          return { ...item, ...factsToApply, conflictWith: null, reviewedAt: now };
-        }),
-      };
-    }
-
-    return ak;
-  }
-
-  /**
-   * applySupersede — pure helper. Array fields only.
-   * Marks old entry 'superseded' (kept for history), appends newItem as 'confirmed'.
-   * Also clears any conflictWith on the old entry (supersession resolves it).
-   */
-  function applySupersede(ak, field, oldKey, newItem) {
-    if (!ak || !AK_ARRAY_FIELDS.has(field)) return ak; // scalars not supported
-    const keyProp = AK_IDENTITY_KEY[field];
-    const keyVal  = oldKey?.toLowerCase().trim();
-    const now     = new Date().toISOString();
-
-    const updatedArray = (ak[field] || []).map(item =>
-      item[keyProp]?.toLowerCase().trim() === keyVal
-        ? { ...item, reviewStatus: 'superseded', reviewedAt: now, conflictWith: null }
-        : item
-    );
-
-    const newConfirmed = {
-      ...newItem,
-      reviewStatus: 'confirmed',
-      reviewedAt:   now,
-      source:       newItem.source || 'sdr_manual',
-    };
-
-    return { ...ak, [field]: [...updatedArray, newConfirmed] };
-  }
 
   const resolveConflict = useCallback((leadId, field, identityKey, resolution) => {
     setLeads(ls => ls.map(l => {
       if (l.id !== leadId) return l;
       return { ...l, accountKnowledge: applyConflictResolution(l.accountKnowledge, field, identityKey, resolution) };
     }));
-    setActiveLead(al => {
-      if (al?.id !== leadId) return al;
-      return { ...al, accountKnowledge: applyConflictResolution(al.accountKnowledge, field, identityKey, resolution) };
-    });
   }, []);
 
   const keepExistingFact = useCallback((leadId, field, identityKey) => {
@@ -417,58 +199,13 @@ export function AppProvider({ children }) {
       if (l.id !== leadId) return l;
       return { ...l, accountKnowledge: applySupersede(l.accountKnowledge, field, oldKey, newItem) };
     }));
-    setActiveLead(al => {
-      if (al?.id !== leadId) return al;
-      return { ...al, accountKnowledge: applySupersede(al.accountKnowledge, field, oldKey, newItem) };
-    });
   }, []);
-
-  // ── Account Knowledge freshness — Phase 7D-D ─────────────────────────────
-  //
-  // reverifyAccountKnowledgeFact(leadId, field, identityKey)
-  //   Sets reviewedAt → now on the matched item. No other changes.
-  //   Modification 1: source is NOT overwritten. The SDR verified the fact;
-  //   they did not originate it. Original provenance is preserved.
-  //   applyScore() NOT called — scoring does not read accountKnowledge.
-
-  /**
-   * applyReverify — pure helper. Updates reviewedAt only; source unchanged.
-   * Works for both array fields (by identityKey) and scalar fields (identityKey null).
-   */
-  function applyReverify(ak, field, identityKey) {
-    if (!ak) return ak;
-    const now = new Date().toISOString();
-
-    if (AK_SCALAR_FIELDS.has(field)) {
-      if (!ak[field]) return ak;
-      return { ...ak, [field]: { ...ak[field], reviewedAt: now } };
-    }
-
-    if (AK_ARRAY_FIELDS.has(field)) {
-      const keyProp = AK_IDENTITY_KEY[field];
-      const keyVal  = identityKey?.toLowerCase().trim();
-      return {
-        ...ak,
-        [field]: (ak[field] || []).map(item =>
-          item[keyProp]?.toLowerCase().trim() === keyVal
-            ? { ...item, reviewedAt: now }
-            : item
-        ),
-      };
-    }
-
-    return ak; // unknown field — no-op
-  }
 
   const reverifyAccountKnowledgeFact = useCallback((leadId, field, identityKey) => {
     setLeads(ls => ls.map(l => {
       if (l.id !== leadId) return l;
       return { ...l, accountKnowledge: applyReverify(l.accountKnowledge, field, identityKey) };
     }));
-    setActiveLead(al => {
-      if (al?.id !== leadId) return al;
-      return { ...al, accountKnowledge: applyReverify(al.accountKnowledge, field, identityKey) };
-    });
   }, []);
 
   const addActivity = useCallback((leadId, type, summary, details = {}) => {
@@ -477,10 +214,6 @@ export function AppProvider({ children }) {
       ? { ...l, activities: [entry, ...(l.activities||[])] }
       : l
     ));
-    setActiveLead(al => al?.id===leadId
-      ? { ...al, activities: [entry, ...(al.activities||[])] }
-      : al
-    );
     return entry;
   }, []);
 
@@ -488,11 +221,9 @@ export function AppProvider({ children }) {
   const addMemoryEntry = useCallback((leadId, entry) => {
     const mem = { ...entry, id: Date.now() };
     setLeads(ls => ls.map(l => l.id===leadId ? { ...l, memory: [mem, ...(l.memory||[])] } : l));
-    setActiveLead(al => al?.id===leadId ? { ...al, memory: [mem, ...(al.memory||[])] } : al);
   }, []);
   const removeMemoryEntry = useCallback((leadId, memId) => {
     setLeads(ls => ls.map(l => l.id===leadId ? { ...l, memory:(l.memory||[]).filter(m=>m.id!==memId) } : l));
-    setActiveLead(al => al?.id===leadId ? { ...al, memory:(al.memory||[]).filter(m=>m.id!==memId) } : al);
   }, []);
 
   // ── Legacy helpers (backwards compat) ──
@@ -501,11 +232,15 @@ export function AppProvider({ children }) {
   }, [addActivity]);
 
   const addTouchEntry = useCallback((leadId, touch) => {
-    addActivity(leadId, touch.type||'Email', `${touch.type||'Email'} sent`, { content:touch.content, outcome:'Sent' });
-    // Also keep legacy touchLog for prompt engine
-    const entry = { ...touch, id:Date.now() };
-    setLeads(ls => ls.map(l => l.id===leadId ? { ...l, touchLog:[...(l.touchLog||[]),entry] } : l));
-    setActiveLead(al => al?.id===leadId ? { ...al, touchLog:[...(al.touchLog||[]),touch] } : al);
+    // P1-D: dual-write removed. touchLog is no longer grown for new activities.
+    // Existing touchLog entries on leads are preserved for backward-compat reads
+    // (buildTouchHistory, deriveEngagementLevel, computeAiScore all still read it).
+    // All new outreach is recorded exclusively in activities[].
+    addActivity(leadId, touch.type||'Email', `${touch.type||'Email'} sent`, {
+      content: touch.content,
+      subject: touch.subject,
+      outcome: 'Sent',
+    });
   }, [addActivity]);
 
   // ── Selection ──
@@ -518,14 +253,9 @@ export function AppProvider({ children }) {
   }, [selected, clearSelect]);
 
   // ── Navigation ──
-  const openLead = useCallback((lead) => {
-    setLeads(ls => {
-      const fresh = ls.find(l => l.id===lead.id) || lead;
-      setActiveLead(fresh);
-      return ls;
-    });
-  }, []);
-  const closeLead = useCallback(() => setActiveLead(null), []);
+  // P1-A: openLead stores only the id. activeLead is derived via useMemo above.
+  const openLead  = useCallback((lead) => setActiveLeadId(lead.id), []);
+  const closeLead = useCallback(() => setActiveLeadId(null), []);
 
   // ── Copilot ──
   const openCopilot  = useCallback((mode, lead=null) => {
@@ -542,10 +272,6 @@ export function AppProvider({ children }) {
       if (l.id !== leadId) return l;
       return applyScore({ ...l, seqLog: { ...l.seqLog, [stepKey]: true }, lastTouch: 'Just now' });
     }));
-    setActiveLead(al => {
-      if (al?.id !== leadId) return al;
-      return applyScore({ ...al, seqLog: { ...al.seqLog, [stepKey]: true }, lastTouch: 'Just now' });
-    });
 
     addActivity(leadId, 'Cadence Update', summary, {
       source:      'cadence',
@@ -557,9 +283,6 @@ export function AppProvider({ children }) {
   }, [addActivity]);
 
   const advanceCadenceDay = useCallback((leadId) => {
-    // Capture current lead snapshot synchronously before any setState calls.
-    // This avoids calling addActivity() inside a functional updater
-    // (which React may invoke more than once under Strict/Concurrent mode).
     setLeads(ls => {
       const lead = ls.find(l => l.id === leadId);
       if (!lead || !isDayComplete(lead) || isCadenceComplete(lead)) return ls;
@@ -570,9 +293,6 @@ export function AppProvider({ children }) {
         ? `Day ${nextDay}: ${nextSteps[0].label}`
         : `Day ${nextDay}`;
 
-      // Log the activity here using the captured snapshot — NOT as a side effect
-      // of the updater return value. addActivity() itself calls setLeads internally
-      // but that is a separate, independent dispatch; it does not affect this return.
       addActivity(leadId, 'Cadence Update', `Advanced to Day ${nextDay}`, {
         source:      'cadence',
         cadenceDay:  nextDay,
@@ -581,16 +301,6 @@ export function AppProvider({ children }) {
       });
 
       return ls.map(l => l.id !== leadId ? l : { ...l, cadenceDay: nextDay, nextAction });
-    });
-    setActiveLead(al => {
-      if (!al || al.id !== leadId) return al;
-      if (!isDayComplete(al) || isCadenceComplete(al)) return al;
-      const nextDay   = nextCadenceDay(al.cadenceDay);
-      const nextSteps = SEQ_PLAN.filter(s => s.day === nextDay);
-      const nextAction = nextSteps.length > 0
-        ? `Day ${nextDay}: ${nextSteps[0].label}`
-        : `Day ${nextDay}`;
-      return { ...al, cadenceDay: nextDay, nextAction };
     });
   }, [addActivity]);
 

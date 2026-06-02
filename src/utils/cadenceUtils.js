@@ -6,7 +6,7 @@
  * seqLog compatibility: handles both boolean { E1: true }
  * and future richer shape { E1: { completed: true, completedAt: '...' } }.
  */
-import { SEQ_PLAN } from '../data/mockData';
+import { SEQ_PLAN } from '../constants/cadencePlan';
 
 /** Normalise a seqLog value to a boolean */
 function isDone(val) {
