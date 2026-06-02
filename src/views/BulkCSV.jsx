@@ -57,7 +57,6 @@ function isUsable(mapped) {
 // Build a full lead object from a mapped row
 function buildLead(mapped) {
   const stage = STAGES_ALL.includes(mapped.stage) ? mapped.stage : 'New';
-  const aiScore = Math.floor(Math.random() * 31) + 60; // 60–90
 
   return {
     business:    mapped.business   || '',
@@ -71,7 +70,7 @@ function buildLead(mapped) {
     keyword:     mapped.keyword    || '',
     competitor:  mapped.competitor || '',
     stage,
-    aiScore,
+    aiScore:     0,           // computed by applyScore in addLead
     reviews:     parseInt(mapped.reviews) || 0,
     rating:      parseFloat(mapped.rating) || 0,
     aiVisibility: 0,

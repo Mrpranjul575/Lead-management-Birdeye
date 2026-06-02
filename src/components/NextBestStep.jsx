@@ -1,5 +1,6 @@
 import { Zap, ArrowRight, Mail, MessageSquare, Mic, Link2, Clock, TrendingUp } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { getPendingSteps } from '../utils/cadenceUtils';
 
 const SUGGESTIONS = {
   'Hot': [
@@ -38,13 +39,41 @@ const URGENCY_STYLE = {
   low:  { bg:'rgba(59,130,246,0.12)', color:'#60A5FA',  label:'This week' },
 };
 
+const CHANNEL_TO_MODE = { Email:'email', SMS:'sms', VM:'voicemail', LinkedIn:'linkedin' };
+const CHANNEL_TO_ICON = { Email:Mail, SMS:MessageSquare, VM:Mic, LinkedIn:Link2 };
+
+/** Converts a SEQ_PLAN step into the same suggestion shape as SUGGESTIONS */
+function buildCadenceSuggestion(step, cadenceDay) {
+  const icon  = CHANNEL_TO_ICON[step.channel] || Mail;
+  return {
+    action:  `${step.label} — Day ${cadenceDay}`,
+    channel: CHANNEL_TO_MODE[step.channel] || 'email',
+    reason:  `Active cadence step: ${step.channel} outreach due on Day ${cadenceDay}`,
+    urgency: 'high',
+    icon,
+    color:   '#5B3FC8',
+  };
+}
+
 export default function NextBestStep({ lead, compact=false }) {
   const { theme, openCopilot } = useApp();
   const dark = theme==='dark';
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const S1=dark?'#161B22':'#FFFFFF', S2=dark?'#0D1117':'#F8F9FA';
 
-  const suggestions = SUGGESTIONS[lead.stage] || SUGGESTIONS['New'];
+  // ── Priority hierarchy ───────────────────────────────────────────────────
+  // 1. Demo Booked → always pre-demo prep (critical lifecycle, never overridden)
+  // 2. Active cadence steps on current day → cadence actions
+  // 3. Stage-based fallback → generic stage actions
+  const pendingCadenceSteps = (lead.cadenceDay > 0) ? getPendingSteps(lead) : [];
+  const hasCadence  = pendingCadenceSteps.length > 0;
+  const isDemo      = lead.stage === 'Demo Booked';
+
+  const suggestions = isDemo
+    ? (SUGGESTIONS['Demo Booked'] || SUGGESTIONS['New'])                            // 1. Critical lifecycle
+    : hasCadence
+      ? pendingCadenceSteps.slice(0, 2).map(s => buildCadenceSuggestion(s, lead.cadenceDay)) // 2. Cadence
+      : (SUGGESTIONS[lead.stage] || SUGGESTIONS['New']);                            // 3. Stage fallback
   const top = suggestions[0];
   const Icon = top.icon;
   const urg  = URGENCY_STYLE[top.urgency];
@@ -68,7 +97,9 @@ export default function NextBestStep({ lead, compact=false }) {
           <Zap size={13} color="#7C5CE8" style={{ animation:'glow-pulse 2.5s ease-in-out infinite' }}/>
           <span style={{ fontSize:12, fontWeight:600, color:'#7C5CE8' }}>Next Best Steps</span>
         </div>
-        <span style={{ fontSize:10, color:T2 }}>Based on stage: {lead.stage}</span>
+        <span style={{ fontSize:10, color:T2 }}>
+          {hasCadence && !isDemo ? `Day ${lead.cadenceDay} cadence step` : `Based on stage: ${lead.stage}`}
+        </span>
       </div>
 
       <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>

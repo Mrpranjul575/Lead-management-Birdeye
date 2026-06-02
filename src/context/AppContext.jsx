@@ -1,7 +1,8 @@
 import { SheetsAdapter } from '../services/sheetsAdapter';
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
-import { MOCK_LEADS, MOCK_CADENCES } from '../data/mockData';
-import { migrateLead, createActivity, createIntelligence } from '../data/schema';
+import { MOCK_LEADS, MOCK_CADENCES, SEQ_PLAN } from '../data/mockData';
+import { migrateLead, createActivity, createIntelligence, computeAiScore, applyScore, CURRENT_SCORE_VERSION } from '../data/schema';
+import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
 
 const AppCtx = createContext(null);
 const STORAGE_KEY = 'birdeye_sdr_leads_v4';
@@ -12,8 +13,25 @@ function loadLeads() {
   try {
     const s = localStorage.getItem(STORAGE_KEY);
     const raw = s ? JSON.parse(s) : MOCK_LEADS;
-    return raw.map(migrateLead);
-  } catch { return MOCK_LEADS.map(migrateLead); }
+    let needsWrite = false;
+
+    const migrated = raw.map(lead => {
+      const m = migrateLead(lead);
+      if (m.scoreVersion !== CURRENT_SCORE_VERSION) {
+        const scored = applyScore(m);
+        needsWrite = true;
+        return scored;
+      }
+      return m;
+    });
+
+    // Persist immediately so the next load skips migration entirely
+    if (needsWrite) {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(migrated)); } catch {}
+    }
+
+    return migrated;
+  } catch { return MOCK_LEADS.map(lead => applyScore(migrateLead(lead))); }
 }
 function loadCadences() {
   try { const s=localStorage.getItem(CAD_KEY); return s?JSON.parse(s):MOCK_CADENCES; } catch { return MOCK_CADENCES; }
@@ -46,8 +64,8 @@ export function AppProvider({ children }) {
 
   // ── Core lead CRUD ──
   const updateLead = useCallback((id, patch) => {
-    setLeads(ls => ls.map(l => l.id===id ? {...l,...patch} : l));
-    setActiveLead(al => al?.id===id ? {...al,...patch} : al);
+    setLeads(ls => ls.map(l => l.id===id ? applyScore({ ...l, ...patch }) : l));
+    setActiveLead(al => al?.id===id ? applyScore({ ...al, ...patch }) : al);
   }, []);
 
   const updateLeadMerged = useCallback((id, ...patches) => {
@@ -56,7 +74,7 @@ export function AppProvider({ children }) {
   }, [updateLead]);
 
   const addLead = useCallback((lead) => {
-    const newLead = migrateLead({
+    const newLead = applyScore(migrateLead({
       ...lead,
       id: Date.now(),
       touchLog:   lead.touchLog   || [],
@@ -66,7 +84,7 @@ export function AppProvider({ children }) {
       followUps:  lead.followUps  || [],
       files:      lead.files      || [],
       seqLog:     lead.seqLog     || {},
-    });
+    }));
     setLeads(ls => [newLead, ...ls]);
     // Push to Google Sheets if configured
     setTimeout(() => {
@@ -80,14 +98,14 @@ export function AppProvider({ children }) {
 
   // ── Intelligence ──
   const updateIntelligence = useCallback((leadId, patch) => {
-    setLeads(ls => ls.map(l => l.id===leadId
-      ? { ...l, intelligence: { ...l.intelligence, ...patch, lastUpdated: new Date().toISOString() } }
-      : l
-    ));
-    setActiveLead(al => al?.id===leadId
-      ? { ...al, intelligence: { ...al.intelligence, ...patch, lastUpdated: new Date().toISOString() } }
-      : al
-    );
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      return applyScore({ ...l, intelligence: { ...l.intelligence, ...patch, lastUpdated: new Date().toISOString() } });
+    }));
+    setActiveLead(al => {
+      if (al?.id !== leadId) return al;
+      return applyScore({ ...al, intelligence: { ...al.intelligence, ...patch, lastUpdated: new Date().toISOString() } });
+    });
   }, []);
 
   // ── Unified Activity Engine ──
@@ -162,6 +180,62 @@ export function AppProvider({ children }) {
   }, []);
   const closeCopilot = useCallback(() => setCopilot({ open:false, mode:null, lead:null }), []);
 
+  // ── Cadence Execution ──
+  const markStepComplete = useCallback((leadId, stepKey, cadenceDay) => {
+    const step    = SEQ_PLAN.find(s => s.key === stepKey);
+    const summary = `${step?.label || stepKey} completed — Day ${cadenceDay}, ${step?.channel || 'Unknown'}`;
+
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      return applyScore({ ...l, seqLog: { ...l.seqLog, [stepKey]: true }, lastTouch: 'Just now' });
+    }));
+    setActiveLead(al => {
+      if (al?.id !== leadId) return al;
+      return applyScore({ ...al, seqLog: { ...al.seqLog, [stepKey]: true }, lastTouch: 'Just now' });
+    });
+
+    addActivity(leadId, 'Cadence Update', summary, {
+      source:      'cadence',
+      stepKey,
+      stepLabel:   step?.label    || stepKey,
+      stepChannel: step?.channel  || 'Unknown',
+      cadenceDay,
+    });
+  }, [addActivity]);
+
+  const advanceCadenceDay = useCallback((leadId) => {
+    setLeads(ls => {
+      const lead = ls.find(l => l.id === leadId);
+      if (!lead || !isDayComplete(lead) || isCadenceComplete(lead)) return ls;
+
+      const nextDay   = nextCadenceDay(lead.cadenceDay);
+      const nextSteps = SEQ_PLAN.filter(s => s.day === nextDay);
+      const nextAction = nextSteps.length > 0
+        ? `Day ${nextDay}: ${nextSteps[0].label}`
+        : `Day ${nextDay}`;
+
+      // Log activity with the read of canonical lead data
+      addActivity(leadId, 'Cadence Update', `Advanced to Day ${nextDay}`, {
+        source:      'cadence',
+        cadenceDay:  nextDay,
+        stepLabel:   nextAction,
+        stepChannel: nextSteps[0]?.channel || 'Unknown',
+      });
+
+      return ls.map(l => l.id !== leadId ? l : { ...l, cadenceDay: nextDay, nextAction });
+    });
+    setActiveLead(al => {
+      if (!al || al.id !== leadId) return al;
+      if (!isDayComplete(al) || isCadenceComplete(al)) return al;
+      const nextDay   = nextCadenceDay(al.cadenceDay);
+      const nextSteps = SEQ_PLAN.filter(s => s.day === nextDay);
+      const nextAction = nextSteps.length > 0
+        ? `Day ${nextDay}: ${nextSteps[0].label}`
+        : `Day ${nextDay}`;
+      return { ...al, cadenceDay: nextDay, nextAction };
+    });
+  }, [addActivity]);
+
   // ── Cadences ──
   const saveCadence   = useCallback((cad) => {
     if (cad.id) setCadences(cs => cs.map(c => c.id===cad.id?cad:c));
@@ -181,6 +255,7 @@ export function AppProvider({ children }) {
       updateIntelligence,
       addActivity, addActivityEntry, addMemoryEntry, removeMemoryEntry, addTouchEntry,
       cadences, saveCadence, deleteCadence,
+      markStepComplete, advanceCadenceDay,
       activeLead, openLead, closeLead,
       selected, toggleSelect, selectAll, clearSelect, bulkUpdateStage,
       copilot, openCopilot, closeCopilot,

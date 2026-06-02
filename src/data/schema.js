@@ -171,3 +171,80 @@ function guessType(text = '') {
   if (t.includes('stage') || t.includes('status')) return 'Status Change';
   return 'Note';
 }
+
+
+// ─── AI Lead Scoring ──────────────────────────────────────────────────────────
+
+/**
+ * Increment this when the scoring formula changes to force a one-time re-score
+ * of all leads on next app load.
+ */
+export const CURRENT_SCORE_VERSION = 1;
+
+/**
+ * computeAiScore — derives a 0–100 score from existing lead fields.
+ * Opportunity signals dominate; stage is intentionally capped at 7 pts max.
+ */
+export function computeAiScore(lead) {
+  const intel = lead.intelligence || {};
+  let score = 0;
+
+  // AI Visibility gap (0–25 pts) — largest single opportunity signal
+  const vis = lead.aiVisibility ?? 0;
+  if      (vis < 10) score += 25;
+  else if (vis < 20) score += 18;
+  else if (vis < 30) score += 10;
+  else               score += 3;
+
+  // Competitor gap urgency (0–20 pts)
+  if      (lead.compGap === 'High')   score += 20;
+  else if (lead.compGap === 'Medium') score += 11;
+  else if (lead.compGap === 'Low')    score += 3;
+
+  // Review volume (0–15 pts)
+  const reviews = lead.reviews || 0;
+  if      (reviews > 100) score += 15;
+  else if (reviews > 50)  score += 10;
+  else if (reviews > 20)  score += 6;
+  else                    score += 1;
+
+  // Rating quality (0–10 pts)
+  const rating = lead.rating || 0;
+  if      (rating >= 4.5) score += 10;
+  else if (rating >= 4.2) score += 7;
+  else if (rating >= 4.0) score += 4;
+  else if (rating >= 3.5) score += 1;
+
+  // Buying signals from intelligence (0–10 pts)
+  score += Math.min((intel.buyingSignals?.length || 0) * 4, 10);
+
+  // Activity engagement — hard-capped at 4 pts, does not dominate opportunity signals
+  const actCount = (lead.activities || []).length + (lead.touchLog || []).length;
+  if      (actCount > 5) score += 4;
+  else if (actCount > 2) score += 2;
+  else if (actCount > 0) score += 1;
+
+  // Stage — intentionally capped at 7 pts max
+  const stageScore = {
+    'Hot':7, 'Demo Booked':6, 'Contacted':4, 'Follow Up':3,
+    'Nurturing':2, 'New':1, 'Re-engage':1, 'Lost':0, 'Converted':0,
+  };
+  score += stageScore[lead.stage] ?? 1;
+
+  // Objections penalty (up to −10 pts)
+  score -= Math.min((intel.objections?.length || 0) * 3, 10);
+
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+/**
+ * applyScore — returns a new lead object with aiScore and scoreVersion set.
+ * Use everywhere instead of repeating the two-line assignment.
+ */
+export function applyScore(lead) {
+  return {
+    ...lead,
+    aiScore:      computeAiScore(lead),
+    scoreVersion: CURRENT_SCORE_VERSION,
+  };
+}

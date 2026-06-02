@@ -11,6 +11,8 @@ import {
 import { useApp } from '../context/AppContext';
 import { STAGES_ALL, STAGE_STYLE } from '../constants/stages';
 import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity } from '../data/schema';
+import { SEQ_PLAN } from '../data/mockData';
+import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
 import NextBestStep from '../components/NextBestStep';
 import FollowUpModal from '../components/FollowUpModal';
 import RecordingUpload from '../components/RecordingUpload';
@@ -894,34 +896,120 @@ function MemoryTab({ lead }) {
 
 /* ─── Tab: Cadence ─── */
 function CadenceTab({ lead }) {
+  const { markStepComplete, advanceCadenceDay } = useApp();
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
-  const CADENCE_STEPS = [
-    { day:1, label:'AI Audit Sent',       done:true,  today:false, type:'Email'    },
-    { day:3, label:'Comp. Proof (Today)', done:false, today:true,  type:'Email'    },
-    { day:5, label:'Case Study',          done:false, today:false, type:'Email'    },
-    { day:7, label:'Soft CTA',            done:false, today:false, type:'LinkedIn' },
-  ];
+
+  const currentDay   = lead.cadenceDay  || 0;
+  const totalDays    = lead.cadenceTotal || 7;
+  const pendingToday = getPendingSteps(lead);
+  const dayDone      = isDayComplete(lead);
+  const cadDone      = isCadenceComplete(lead);
+
+  // All SEQ_PLAN steps up to totalDays, sorted by day
+  const stepsInCadence = SEQ_PLAN.filter(s => s.day <= totalDays).sort((a,b) => a.day - b.day);
+
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+    <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+
+      {/* Progress header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <span style={{ fontSize:13, fontWeight:600, color:T1 }}>Day {lead.cadenceDay||0} of {lead.cadenceTotal||7}</span>
-        <button style={{ fontSize:11, color:'#7C5CE8', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit' }}>Change Cadence</button>
+        <span style={{ fontSize:13, fontWeight:600, color:T1 }}>
+          {cadDone ? 'Cadence Complete ✓' : `Day ${currentDay} of ${totalDays}`}
+        </span>
+        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          {!cadDone && dayDone && currentDay > 0 && (
+            <button
+              onClick={() => advanceCadenceDay(lead.id)}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)', transition:'background 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.background='#4828B5'}
+              onMouseLeave={e => e.currentTarget.style.background='#5B3FC8'}>
+              Advance to Day {nextCadenceDay(currentDay)} →
+            </button>
+          )}
+          {!cadDone && !dayDone && currentDay > 0 && (
+            <span style={{ fontSize:11, color:T2 }}>
+              {pendingToday.length} step{pendingToday.length !== 1 ? 's' : ''} remaining today
+            </span>
+          )}
+        </div>
       </div>
+
+      {/* Step list */}
       <div style={{ position:'relative', paddingLeft:40 }}>
         <div style={{ position:'absolute', left:14, top:20, bottom:0, width:2, background:B1 }}/>
-        {CADENCE_STEPS.map(({ day, label, done, today, type })=>(
-          <div key={day} style={{ display:'flex', alignItems:'center', gap:12, marginBottom:18, position:'relative' }}>
-            <div style={{ position:'absolute', left:-26, width:14, height:14, borderRadius:'50%', background:done?'#10B981':today?'#5B3FC8':'var(--bg)', border:`2px solid ${done?'#10B981':today?'#5B3FC8':'var(--b1)'}`, zIndex:1, boxShadow:today?'0 0 10px rgba(91,63,200,0.4)':'none' }}/>
-            <span style={{ fontSize:10, fontFamily:'JetBrains Mono,monospace', color:T2, width:36, flexShrink:0 }}>Day {day}</span>
-            <div style={{ flex:1 }}>
-              <span style={{ fontSize:12, fontWeight:today?600:400, color:done?T2:today?'#7C5CE8':T1 }}>{label}</span>
-              <span style={{ fontSize:10, color:T2, marginLeft:8 }}>{type}</span>
+
+        {stepsInCadence.map(step => {
+          const done    = !!(lead.seqLog?.[step.key] === true ||
+                            (typeof lead.seqLog?.[step.key] === 'object' && lead.seqLog[step.key]?.completed));
+          const isCur   = step.day === currentDay;
+          const isPast  = step.day < currentDay;
+          const isFut   = step.day > currentDay;
+          const pending = isCur && !done;
+
+          return (
+            <div key={step.key} style={{ display:'flex', alignItems:'center', gap:12, marginBottom:18, position:'relative' }}>
+              {/* Timeline dot */}
+              <div style={{
+                position:'absolute', left:-26, width:14, height:14, borderRadius:'50%', zIndex:1,
+                background: done ? '#10B981' : pending ? '#5B3FC8' : 'var(--bg)',
+                border: `2px solid ${done ? '#10B981' : pending ? '#5B3FC8' : B1}`,
+                boxShadow: pending ? '0 0 10px rgba(91,63,200,0.4)' : 'none',
+                display:'flex', alignItems:'center', justifyContent:'center',
+              }}>
+                {done && <svg width="8" height="8" viewBox="0 0 8 8"><path d="M1 4l2 2 4-4" stroke="#fff" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+              </div>
+
+              {/* Day label */}
+              <span style={{ fontSize:10, fontFamily:'JetBrains Mono,monospace', color:T2, width:36, flexShrink:0 }}>
+                Day {step.day}
+              </span>
+
+              {/* Step info */}
+              <div style={{ flex:1 }}>
+                <span style={{ fontSize:12, fontWeight:isCur ? 600 : 400, color: done ? T2 : pending ? '#7C5CE8' : isFut ? T2 : T1 }}>
+                  {step.label}
+                </span>
+                <span style={{ fontSize:10, color:T2, marginLeft:8 }}>{step.channel}</span>
+              </div>
+
+              {/* Actions / status badges */}
+              {pending && (
+                <button
+                  onClick={() => markStepComplete(lead.id, step.key, currentDay)}
+                  style={{ fontSize:10, padding:'3px 10px', borderRadius:99, border:'1px solid rgba(16,185,129,0.4)', background:'rgba(16,185,129,0.1)', color:'#10B981', cursor:'pointer', fontFamily:'inherit', fontWeight:600, transition:'all 0.12s', flexShrink:0 }}
+                  onMouseEnter={e => { e.currentTarget.style.background='rgba(16,185,129,0.2)'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background='rgba(16,185,129,0.1)'; }}>
+                  Mark Done
+                </button>
+              )}
+              {done && <span style={{ fontSize:10, color:'#10B981', fontWeight:600, flexShrink:0 }}>✓ Done</span>}
+              {isCur && (
+                <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:99, background: pending ? 'rgba(91,63,200,0.15)' : 'rgba(16,185,129,0.12)', color: pending ? '#7C5CE8' : '#10B981', flexShrink:0 }}>
+                  {pending ? 'Today' : 'Complete'}
+                </span>
+              )}
             </div>
-            {done && <CheckCircle2 size={13} color="#10B981"/>}
-            {today && <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:99, background:'rgba(91,63,200,0.15)', color:'#7C5CE8' }}>Today</span>}
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {/* Cadence complete state */}
+      {cadDone && (
+        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'12px 14px', borderRadius:10, background:'rgba(16,185,129,0.08)', border:'1px solid rgba(16,185,129,0.2)' }}>
+          <span style={{ fontSize:13 }}>🎉</span>
+          <div>
+            <div style={{ fontSize:12, fontWeight:600, color:'#10B981' }}>Cadence Complete</div>
+            <div style={{ fontSize:11, color:T2 }}>All {totalDays} days finished. Consider enrolling in a new cadence.</div>
+          </div>
+        </div>
+      )}
+
+      {/* Not started state */}
+      {currentDay === 0 && (
+        <div style={{ textAlign:'center', padding:'32px', color:T2, fontSize:12 }}>
+          No active cadence day. Set <strong style={{ color:T1 }}>cadenceDay</strong> to 1 to begin execution.
+        </div>
+      )}
     </div>
   );
 }
