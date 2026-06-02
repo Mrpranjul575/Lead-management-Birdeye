@@ -244,14 +244,52 @@ function CallNotesModal({ lead, onClose }) {
 /* ═══════════════════════════════════════════════════════════════
    PREPARE FOR CALL DRAWER
 ═══════════════════════════════════════════════════════════════ */
-function PrepareCallDrawer({ lead, onClose }) {
+
+/**
+ * describePendingItems — Phase 7C-2E
+ * Returns a human-readable summary of what is pending review in accountKnowledge.
+ * Used by the pending banner in PrepareCallDrawer.
+ * Pure function. Does not import from AccountKnowledgeTab — reads ak fields directly.
+ *
+ * Example: "2 competitors, 1 decision maker, budget"
+ */
+function describePendingItems(ak) {
+  if (!ak) return '';
+  const parts = [];
+  const count = (field, singular, plural) => {
+    const n = (ak[field] || []).filter(i => i.reviewStatus === 'pending').length;
+    if (n > 0) parts.push(n === 1 ? `1 ${singular}` : `${n} ${plural}`);
+  };
+  count('competitors',         'competitor',     'competitors');
+  count('decisionMakers',      'decision maker', 'decision makers');
+  count('currentTools',        'tool',           'tools');
+  count('businessGoals',       'goal',           'goals');
+  count('recurringObjections', 'objection',      'objections');
+  if (ak.budget?.reviewStatus          === 'pending') parts.push('budget');
+  if (ak.purchaseTimeline?.reviewStatus === 'pending') parts.push('timeline');
+  return parts.join(', ');
+}
+
+function PrepareCallDrawer({ lead, onClose, onTabChange }) {
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const intel = lead.intelligence || {};
+  const ak    = lead.accountKnowledge;
 
-  // Phase 7C-2C: read confirmed competitors from accountKnowledge (authoritative).
-  // Fall back to lead.competitor (top-level import field) then generic question.
-  const confirmedCompetitors = (lead.accountKnowledge?.competitors || []).filter(isConfirmed);
+  // Phase 7C-2C: confirmed competitors from accountKnowledge
+  const confirmedCompetitors = (ak?.competitors || []).filter(isConfirmed);
   const topCompetitor = confirmedCompetitors[0]?.name || lead.competitor || null;
+
+  // Phase 7C-2E: decision makers + AK compact section data
+  const confirmedDMs       = (ak?.decisionMakers || []).filter(isConfirmed);
+  const confirmedGoals      = (ak?.businessGoals || []).filter(isConfirmed).slice(0, 3);
+  const confirmedObjections = (ak?.recurringObjections || []).filter(isConfirmed).slice(0, 3);
+  const confirmedBudget     = ak?.budget && isConfirmed(ak.budget) ? ak.budget : null;
+  const confirmedTimeline   = ak?.purchaseTimeline && isConfirmed(ak.purchaseTimeline) ? ak.purchaseTimeline : null;
+  const hasAKCompact        = !!(confirmedBudget || confirmedTimeline || confirmedGoals.length || confirmedObjections.length);
+
+  // Phase 7C-2E: pending banner data
+  const pendingDesc = describePendingItems(ak);
+  const hasPending  = pendingDesc.length > 0;
 
   const questions = [
     `What's holding you back from solving your ${(lead.intent||'AI visibility').toLowerCase()} issue today?`,
@@ -282,6 +320,34 @@ function PrepareCallDrawer({ lead, onClose }) {
         </div>
 
         <div style={{ padding:'20px', display:'flex', flexDirection:'column', gap:16 }}>
+          {/* Phase 7C-2E: Pending knowledge banner — shown when pending AK facts exist */}
+          {hasPending && (
+            <div style={{
+              display:'flex', alignItems:'flex-start', gap:10,
+              padding:'10px 12px', borderRadius:9,
+              border:'1px solid rgba(245,158,11,0.35)',
+              background:'rgba(245,158,11,0.06)',
+            }}>
+              <AlertCircle size={13} color="#F59E0B" style={{ flexShrink:0, marginTop:1 }}/>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:11, fontWeight:700, color:'#F59E0B', marginBottom:2 }}>
+                  Facts pending review — not in call context yet
+                </div>
+                <div style={{ fontSize:11, color:T2, marginBottom:6 }}>
+                  Extracted from transcript: {pendingDesc}
+                </div>
+                {onTabChange && (
+                  <button
+                    onClick={() => { onClose(); onTabChange('account_knowledge'); }}
+                    style={{ fontSize:11, fontWeight:600, color:'#F59E0B', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit', padding:0, textDecoration:'underline' }}
+                  >
+                    → Review in Account Knowledge tab
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Last conversation */}
           {intel.lastConversation && (
             <Section title="Last Conversation" icon={Clock} color="#7C5CE8">
@@ -300,6 +366,15 @@ function PrepareCallDrawer({ lead, onClose }) {
           <Section title="Competitors" icon={Target} color="#F59E0B">
             {confirmedCompetitors.length
               ? confirmedCompetitors.map((c,i)=><Bullet key={i} text={c.name}/>)
+              : <span style={{ fontSize:12, color:T2 }}>None recorded yet</span>}
+          </Section>
+
+          {/* Decision Makers — Phase 7C-2E: confirmed accountKnowledge.decisionMakers */}
+          <Section title="Decision Makers" icon={Brain} color="#7C5CE8">
+            {confirmedDMs.length
+              ? confirmedDMs.map((d,i)=>(
+                  <Bullet key={i} text={d.role ? `${d.name} · ${d.role}` : d.name}/>
+                ))
               : <span style={{ fontSize:12, color:T2 }}>None recorded yet</span>}
           </Section>
 
@@ -323,6 +398,55 @@ function PrepareCallDrawer({ lead, onClose }) {
               {intel.nextBestAction || lead.nextAction || 'Schedule a demo or send competitor comparison'}
             </p>
           </Section>
+
+          {/* Phase 7C-2E: Account Knowledge compact section — budget, timeline, goals, objections */}
+          {hasAKCompact && (
+            <Section title="Account Knowledge" icon={Brain} color="#38BDF8">
+              <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
+                {confirmedBudget && (
+                  <div style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
+                    <span style={{ fontSize:10, fontWeight:700, color:T2, width:70, flexShrink:0, textTransform:'uppercase', letterSpacing:'0.04em', paddingTop:1 }}>Budget</span>
+                    <span style={{ fontSize:12, color:T1 }}>
+                      {[confirmedBudget.status !== 'unknown' ? confirmedBudget.status : null, confirmedBudget.amount || null].filter(Boolean).join(' — ') || confirmedBudget.notes || '—'}
+                    </span>
+                  </div>
+                )}
+                {confirmedTimeline && (
+                  <div style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
+                    <span style={{ fontSize:10, fontWeight:700, color:T2, width:70, flexShrink:0, textTransform:'uppercase', letterSpacing:'0.04em', paddingTop:1 }}>Timeline</span>
+                    <span style={{ fontSize:12, color:T1 }}>
+                      {[confirmedTimeline.urgency !== 'unknown' ? confirmedTimeline.urgency : null, confirmedTimeline.targetDate || null].filter(Boolean).join(' — ') || confirmedTimeline.notes || '—'}
+                    </span>
+                  </div>
+                )}
+                {confirmedGoals.length > 0 && (
+                  <div style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
+                    <span style={{ fontSize:10, fontWeight:700, color:T2, width:70, flexShrink:0, textTransform:'uppercase', letterSpacing:'0.04em', paddingTop:1 }}>Goals</span>
+                    <div style={{ flex:1 }}>
+                      {confirmedGoals.map((g, i) => (
+                        <div key={i} style={{ fontSize:12, color:T1, marginBottom: i < confirmedGoals.length - 1 ? 3 : 0 }}>
+                          {g.goal.length > 60 ? g.goal.slice(0, 60) + '…' : g.goal}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {confirmedObjections.length > 0 && (
+                  <div style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
+                    <span style={{ fontSize:10, fontWeight:700, color:T2, width:70, flexShrink:0, textTransform:'uppercase', letterSpacing:'0.04em', paddingTop:1 }}>Objections</span>
+                    <div style={{ flex:1 }}>
+                      {confirmedObjections.map((o, i) => (
+                        <div key={i} style={{ fontSize:12, color:T1, marginBottom: i < confirmedObjections.length - 1 ? 3 : 0 }}>
+                          {o.objection.length > 60 ? o.objection.slice(0, 60) + '…' : o.objection}
+                          {o.occurrences > 1 && <span style={{ fontSize:10, color:T2, marginLeft:5 }}>({o.occurrences}×)</span>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Section>
+          )}
 
           {/* Suggested questions */}
           <Section title="Suggested Questions" icon={Brain} color="#3B82F6">
@@ -1432,7 +1556,7 @@ export default function LeadPage() {
       {/* Modals */}
       {followUpOpen  && <FollowUpModal    lead={lead} onClose={()=>setFollowUpOpen(false)}/>}
       {callNotesOpen && <CallNotesModal   lead={lead} onClose={()=>setCallNotesOpen(false)}/>}
-      {prepareOpen   && <PrepareCallDrawer lead={lead} onClose={()=>setPrepareOpen(false)}/>}
+      {prepareOpen   && <PrepareCallDrawer lead={lead} onClose={()=>setPrepareOpen(false)} onTabChange={setTab}/>}
       {recordingOpen && <RecordingUpload    lead={lead} onClose={()=>setRecordingOpen(false)}/>}
     </div>
   );
