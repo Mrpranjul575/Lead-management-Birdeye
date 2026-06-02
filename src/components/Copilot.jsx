@@ -110,7 +110,7 @@ function Launcher({ theme, onSelect }) {
 
 // ── Wizard ────────────────────────────────────────────────────────────────────
 function Wizard({ mode, theme, onBack }) {
-  const { activeLead, closeCopilot, addTouchEntry, addActivityEntry, settings } = useApp();
+  const { activeLead, closeCopilot, addTouchEntry, addActivityEntry, updateIntelligence, settings } = useApp();
   const [step,        setStep]       = useState(0);
   const [copied,      setCopied]     = useState(false);
   const [saved,       setSaved]      = useState(false);
@@ -174,6 +174,19 @@ function Wizard({ mode, theme, onBack }) {
         date: new Date().toLocaleDateString('en-US',{ month:'short', day:'numeric' }),
       });
       addActivityEntry(safeLead.id, `${shortcut.label} generated via AI Copilot (${isGemini?'Gemini':'Claude'})`);
+
+      // Persist AI recommendation for situational analysis only.
+      // Email / SMS / VM / LinkedIn / cadence outputs are ephemeral drafts.
+      // No parsing. No field extraction. The full reviewed text is the recommendation.
+      // insightSource removed per architecture review — always 'situational' in Phase 3,
+      // adds no information until a second recommendation source exists.
+      if (mode === 'situational' && content) {
+        updateIntelligence(safeLead.id, {
+          aiRecommendation: content,
+          insightVersion:   (safeLead.intelligence?.insightVersion || 0) + 1,
+          lastAiUpdate:     new Date().toISOString(),
+        });
+      }
     }
     setSaved(true);
     setTimeout(()=>closeCopilot(), 1200);

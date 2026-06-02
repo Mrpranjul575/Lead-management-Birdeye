@@ -342,6 +342,7 @@ const TABS = [
 /* ─── Tab: Overview ─── */
 function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording, onTabChange }) {
   const { openCopilot } = useApp();
+  const [recommendationOpen, setRecommendationOpen] = useState(false);
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const intel   = lead.intelligence || {};
   const derived = deriveSignals(lead);
@@ -377,6 +378,33 @@ function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording
             onMouseLeave={e=>e.currentTarget.style.background='#5B3FC8'}>
             <Sparkles size={12}/> Prepare For Call
           </button>
+
+          {/* AI Recommendation chip — shown when a situational analysis has been saved */}
+          {intel.aiRecommendation && (
+            <div style={{ marginTop:10, padding:'10px 12px', borderRadius:9, background:'rgba(91,63,200,0.06)', border:'1px solid rgba(91,63,200,0.2)' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: recommendationOpen ? 8 : 0 }}>
+                <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                  <Sparkles size={11} color="#7C5CE8"/>
+                  <span style={{ fontSize:11, fontWeight:600, color:'#7C5CE8' }}>AI Recommendation Available</span>
+                  {intel.lastAiUpdate && (
+                    <span style={{ fontSize:10, color:T2 }}>
+                      · {new Date(intel.lastAiUpdate).toLocaleDateString('en-US',{month:'short',day:'numeric'})}
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setRecommendationOpen(v => !v)}
+                  style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:99, border:'none', background:'rgba(91,63,200,0.15)', color:'#7C5CE8', cursor:'pointer', fontFamily:'inherit' }}>
+                  {recommendationOpen ? 'Hide' : 'View'}
+                </button>
+              </div>
+              {recommendationOpen && (
+                <p style={{ fontSize:12, color:T1, lineHeight:1.7, margin:0, whiteSpace:'pre-wrap' }}>
+                  {intel.aiRecommendation}
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Key Intelligence */}
@@ -713,6 +741,23 @@ function AIIntelTab({ lead }) {
             style={{ width:'100%', accentColor:'#5B3FC8' }}/>
         </div>
       </div>
+
+      {/* AI Recommendation metadata — read-only, shown when any insight has been generated */}
+      {(intel.insightVersion > 0 || intel.lastAiUpdate) && (
+        <div style={{ display:'flex', gap:12, flexWrap:'wrap', padding:'10px 12px', borderRadius:9, background:'var(--bg)', border:`1px solid ${B1}`, fontSize:11, color:T2 }}>
+          <span style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', alignSelf:'center' }}>AI Insights</span>
+          {intel.insightVersion > 0 && (
+            <span style={{ padding:'2px 8px', borderRadius:99, background:'rgba(91,63,200,0.1)', color:'#7C5CE8', fontSize:10, fontWeight:600 }}>
+              v{intel.insightVersion}
+            </span>
+          )}
+          {intel.lastAiUpdate && (
+            <span style={{ fontSize:10 }}>
+              Last updated: {new Date(intel.lastAiUpdate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

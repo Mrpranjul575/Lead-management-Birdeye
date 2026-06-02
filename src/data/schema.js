@@ -70,6 +70,19 @@ export function createIntelligence(overrides = {}) {
     nextBestAction:             '',
     lastConversation:           '',
     lastUpdated:                null,
+
+    // ── AI Recommendation Storage — Phase 3 ────────────────────────────────
+    // aiRecommendation : full situational analysis text reviewed by the SDR.
+    //                    Set by Copilot 'situational' save only.
+    //                    NOT populated from email/SMS/VM/LinkedIn drafts.
+    //                    NOT injected into buildLeadContext (avoids feedback loop).
+    // insightVersion   : increments on every AI recommendation write only.
+    //                    Does NOT increment on transcript/call-note updates.
+    // lastAiUpdate     : ISO timestamp of last AI recommendation write.
+    aiRecommendation: null,
+    insightVersion:   0,
+    lastAiUpdate:     null,
+
     ...overrides,
   };
 }
