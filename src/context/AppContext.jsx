@@ -1,7 +1,7 @@
 import { SheetsAdapter } from '../services/sheetsAdapter';
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { MOCK_LEADS, MOCK_CADENCES, SEQ_PLAN } from '../data/mockData';
-import { migrateLead, createActivity, createIntelligence, createAccountKnowledge, mergeAccountKnowledge, computeAiScore, applyScore, CURRENT_SCORE_VERSION, INTELLIGENCE_REJECTED_FIELDS } from '../data/schema';
+import { migrateLead, createActivity, createIntelligence, createAccountKnowledge, mergeAccountKnowledge, isConfirmed, computeAiScore, applyScore, CURRENT_SCORE_VERSION, INTELLIGENCE_REJECTED_FIELDS } from '../data/schema';
 import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
 
 const AppCtx = createContext(null);
@@ -148,7 +148,121 @@ export function AppProvider({ children }) {
     });
   }, []);
 
-  // ── Unified Activity Engine ──
+  // ── Account Knowledge review actions — Phase 7C-2B ──────────────────────
+  //
+  // confirmAccountKnowledgeFact(leadId, field, identityKey, updatedValues?)
+  //   Sets reviewStatus → 'confirmed', reviewedAt → now on the matched item.
+  //   For arrays: finds item by identityKey (name / goal / objection).
+  //   For scalars (budget, purchaseTimeline): identityKey is ignored (null).
+  //   updatedValues: optional partial object merged into the item before
+  //     confirming — supports the "add manually" path in the AK tab where
+  //     the SDR supplies full values on confirm.
+  //   applyScore() intentionally NOT called — scoring does not read AK.
+  //
+  // dismissAccountKnowledgeFact(leadId, field, identityKey)
+  //   Sets reviewStatus → 'dismissed', reviewedAt → now.
+  //   Item is retained in the array for audit trail.
+  //   mergeAccountKnowledge() dismissed-skip ensures re-extraction is possible.
+  //
+  // bulkConfirmAccountKnowledge(leadId)
+  //   Confirms every pending item across all fields in one batch update.
+  //   Single setState call per store (leads + activeLead) for performance.
+
+  // ── Identity-key lookup helpers (pure, not exported) ──
+  // Each field uses a different property as its dedup identity key.
+  const AK_IDENTITY_KEY = {
+    competitors:         'name',
+    decisionMakers:      'name',
+    currentTools:        'name',
+    businessGoals:       'goal',
+    recurringObjections: 'objection',
+  };
+  const AK_ARRAY_FIELDS   = new Set(Object.keys(AK_IDENTITY_KEY));
+  const AK_SCALAR_FIELDS  = new Set(['budget', 'purchaseTimeline']);
+
+  // Applies reviewStatus + reviewedAt update to a single accountKnowledge,
+  // returning a new object. Pure — does not mutate.
+  function applyAKReview(ak, field, identityKey, reviewStatus, updatedValues = {}) {
+    if (!ak) return ak;
+    const now = new Date().toISOString();
+
+    if (AK_SCALAR_FIELDS.has(field)) {
+      if (!ak[field]) return ak;
+      return {
+        ...ak,
+        [field]: { ...ak[field], ...updatedValues, reviewStatus, reviewedAt: now },
+      };
+    }
+
+    if (AK_ARRAY_FIELDS.has(field)) {
+      const keyProp = AK_IDENTITY_KEY[field];
+      const keyVal  = identityKey?.toLowerCase().trim();
+      return {
+        ...ak,
+        [field]: (ak[field] || []).map(item =>
+          item[keyProp]?.toLowerCase().trim() === keyVal
+            ? { ...item, ...updatedValues, reviewStatus, reviewedAt: now }
+            : item
+        ),
+      };
+    }
+
+    return ak; // unknown field — no-op
+  }
+
+  // Confirms every pending item across all AK fields in one pass.
+  function confirmAllPending(ak) {
+    if (!ak) return ak;
+    const now = new Date().toISOString();
+    const confirmItem = item =>
+      item.reviewStatus === 'pending'
+        ? { ...item, reviewStatus: 'confirmed', reviewedAt: now }
+        : item;
+
+    return {
+      ...ak,
+      competitors:         (ak.competitors         || []).map(confirmItem),
+      decisionMakers:      (ak.decisionMakers      || []).map(confirmItem),
+      currentTools:        (ak.currentTools        || []).map(confirmItem),
+      businessGoals:       (ak.businessGoals       || []).map(confirmItem),
+      recurringObjections: (ak.recurringObjections || []).map(confirmItem),
+      budget:          ak.budget?.reviewStatus          === 'pending' ? { ...ak.budget,          reviewStatus: 'confirmed', reviewedAt: now } : ak.budget,
+      purchaseTimeline:ak.purchaseTimeline?.reviewStatus === 'pending' ? { ...ak.purchaseTimeline, reviewStatus: 'confirmed', reviewedAt: now } : ak.purchaseTimeline,
+    };
+  }
+
+  const confirmAccountKnowledgeFact = useCallback((leadId, field, identityKey, updatedValues = {}) => {
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      return { ...l, accountKnowledge: applyAKReview(l.accountKnowledge, field, identityKey, 'confirmed', updatedValues) };
+    }));
+    setActiveLead(al => {
+      if (al?.id !== leadId) return al;
+      return { ...al, accountKnowledge: applyAKReview(al.accountKnowledge, field, identityKey, 'confirmed', updatedValues) };
+    });
+  }, []);
+
+  const dismissAccountKnowledgeFact = useCallback((leadId, field, identityKey) => {
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      return { ...l, accountKnowledge: applyAKReview(l.accountKnowledge, field, identityKey, 'dismissed') };
+    }));
+    setActiveLead(al => {
+      if (al?.id !== leadId) return al;
+      return { ...al, accountKnowledge: applyAKReview(al.accountKnowledge, field, identityKey, 'dismissed') };
+    });
+  }, []);
+
+  const bulkConfirmAccountKnowledge = useCallback((leadId) => {
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      return { ...l, accountKnowledge: confirmAllPending(l.accountKnowledge) };
+    }));
+    setActiveLead(al => {
+      if (al?.id !== leadId) return al;
+      return { ...al, accountKnowledge: confirmAllPending(al.accountKnowledge) };
+    });
+  }, []);
   const addActivity = useCallback((leadId, type, summary, details = {}) => {
     const entry = createActivity(type, summary, details);
     setLeads(ls => ls.map(l => l.id===leadId
@@ -293,6 +407,7 @@ export function AppProvider({ children }) {
       view, setView,
       leads, addLead, updateLead, updateLeadMerged,
       updateIntelligence, updateAccountKnowledge,
+      confirmAccountKnowledgeFact, dismissAccountKnowledgeFact, bulkConfirmAccountKnowledge,
       addActivity, addActivityEntry, addMemoryEntry, removeMemoryEntry, addTouchEntry,
       cadences, saveCadence, deleteCadence,
       markStepComplete, advanceCadenceDay,
