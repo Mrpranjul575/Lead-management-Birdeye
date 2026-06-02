@@ -150,6 +150,19 @@ export function isConfirmed(item) {
  *   purchaseTimeline : replace entirely when patch.purchaseTimeline is non-null.
  *   metadata : lastUpdated always set to now; extractionCount always incremented.
  *
+ * Phase 7C-2A — behavioral protections:
+ *   1. CONFIRMED PROTECTION (arrays): a confirmed existing entry is never downgraded
+ *      or overwritten by a pending patch item. Pending patches on confirmed entries
+ *      are silently ignored — the confirmed SDR decision stands.
+ *   2. DISMISSED SKIP: dismissed entries are excluded from identity-key matching.
+ *      A dismissed name can be re-extracted as a new pending item in a future
+ *      transcript. Dismissal applies to that extraction event, not the name forever.
+ *   3. CONFIRMED PROTECTION (scalars): confirmed budget and purchaseTimeline are
+ *      never overwritten by a pending patch. Only confirmed or non-pending patches
+ *      may replace a confirmed scalar.
+ *   4. OBJECTION PROTECTION: occurrence count is never incremented on a confirmed
+ *      objection by a pending patch — counts only grow through SDR-confirmed events.
+ *
  * Idempotent: calling twice with the same patch produces the same result as once.
  * Pure: does not mutate either argument. Returns a new object.
  */
@@ -157,70 +170,111 @@ export function mergeAccountKnowledge(existing, patch) {
   const now = new Date().toISOString();
 
   // ── competitors — dedupe by name (case-insensitive) ──
+  // Protection: dismissed entries skipped in identity-key search (re-extraction allowed).
+  // Protection: confirmed entries not overwritten by pending patches.
   const mergedCompetitors = [...(existing.competitors || [])];
   for (const c of (patch.competitors || [])) {
     const key = c.name?.toLowerCase().trim();
     if (!key) continue;
-    const idx = mergedCompetitors.findIndex(e => e.name?.toLowerCase().trim() === key);
+    // Only match against non-dismissed entries (dismissed = invisible to dedup)
+    const idx = mergedCompetitors.findIndex(
+      e => e.name?.toLowerCase().trim() === key && e.reviewStatus !== 'dismissed'
+    );
     if (idx === -1) {
       mergedCompetitors.push(c);
     } else {
-      // Update context/strength if the new entry provides richer info
+      const existingConfirmed = isConfirmed(mergedCompetitors[idx]);
+      const patchIsPending    = !c.reviewStatus || c.reviewStatus === 'pending';
+      if (existingConfirmed && patchIsPending) {
+        // Confirmed entry protected — pending patch cannot overwrite SDR-confirmed data
+        continue;
+      }
       mergedCompetitors[idx] = {
         ...mergedCompetitors[idx],
         strength: c.strength && c.strength !== 'unknown' ? c.strength : mergedCompetitors[idx].strength,
         context:  c.context  || mergedCompetitors[idx].context,
+        // Preserve existing reviewStatus if already confirmed; otherwise allow update
+        reviewStatus: existingConfirmed ? mergedCompetitors[idx].reviewStatus : (c.reviewStatus || mergedCompetitors[idx].reviewStatus),
       };
     }
   }
 
   // ── decisionMakers — dedupe by name (case-insensitive) ──
+  // Same dismissed-skip and confirmed-protection rules as competitors.
   const mergedDMs = [...(existing.decisionMakers || [])];
   for (const dm of (patch.decisionMakers || [])) {
     const key = dm.name?.toLowerCase().trim();
     if (!key) continue;
-    const idx = mergedDMs.findIndex(e => e.name?.toLowerCase().trim() === key);
+    const idx = mergedDMs.findIndex(
+      e => e.name?.toLowerCase().trim() === key && e.reviewStatus !== 'dismissed'
+    );
     if (idx === -1) {
       mergedDMs.push(dm);
     } else {
+      const existingConfirmed = isConfirmed(mergedDMs[idx]);
+      const patchIsPending    = !dm.reviewStatus || dm.reviewStatus === 'pending';
+      if (existingConfirmed && patchIsPending) {
+        continue; // confirmed DM protected from pending overwrite
+      }
       mergedDMs[idx] = {
         ...mergedDMs[idx],
-        role:      dm.role      || mergedDMs[idx].role,
-        authority: dm.authority && dm.authority !== 'unknown' ? dm.authority : mergedDMs[idx].authority,
-        notes:     dm.notes     || mergedDMs[idx].notes,
+        role:        dm.role      || mergedDMs[idx].role,
+        authority:   dm.authority && dm.authority !== 'unknown' ? dm.authority : mergedDMs[idx].authority,
+        notes:       dm.notes     || mergedDMs[idx].notes,
+        reviewStatus: existingConfirmed ? mergedDMs[idx].reviewStatus : (dm.reviewStatus || mergedDMs[idx].reviewStatus),
       };
     }
   }
 
   // ── currentTools — dedupe by name (case-insensitive) ──
+  // Dismissed-skip applied; no field-update on match (tools are append-only by design).
   const mergedTools = [...(existing.currentTools || [])];
   for (const t of (patch.currentTools || [])) {
     const key = t.name?.toLowerCase().trim();
     if (!key) continue;
-    if (!mergedTools.find(e => e.name?.toLowerCase().trim() === key)) {
+    const alreadyExists = mergedTools.find(
+      e => e.name?.toLowerCase().trim() === key && e.reviewStatus !== 'dismissed'
+    );
+    if (!alreadyExists) {
       mergedTools.push(t);
     }
   }
 
   // ── businessGoals — dedupe by goal string (case-insensitive) ──
+  // Dismissed-skip applied; no field-update on match.
   const mergedGoals = [...(existing.businessGoals || [])];
   for (const g of (patch.businessGoals || [])) {
     const key = g.goal?.toLowerCase().trim();
     if (!key) continue;
-    if (!mergedGoals.find(e => e.goal?.toLowerCase().trim() === key)) {
+    const alreadyExists = mergedGoals.find(
+      e => e.goal?.toLowerCase().trim() === key && e.reviewStatus !== 'dismissed'
+    );
+    if (!alreadyExists) {
       mergedGoals.push(g);
     }
   }
 
-  // ── recurringObjections — dedupe by objection string; increment occurrences on match ──
+  // ── recurringObjections — dedupe by objection string ──
+  // Dismissed-skip: dismissed objections invisible to dedup (can be re-extracted).
+  // Confirmed protection: occurrence count NOT incremented by a pending patch on a
+  // confirmed entry — counts only grow through SDR-confirmed saves.
   const mergedObjections = [...(existing.recurringObjections || [])];
   for (const o of (patch.recurringObjections || [])) {
     const key = o.objection?.toLowerCase().trim();
     if (!key) continue;
-    const idx = mergedObjections.findIndex(e => e.objection?.toLowerCase().trim() === key);
+    const idx = mergedObjections.findIndex(
+      e => e.objection?.toLowerCase().trim() === key && e.reviewStatus !== 'dismissed'
+    );
     if (idx === -1) {
       mergedObjections.push({ ...o, occurrences: o.occurrences || 1, firstSeen: o.firstSeen || now, lastSeen: now });
     } else {
+      const existingConfirmed = isConfirmed(mergedObjections[idx]);
+      const patchIsPending    = !o.reviewStatus || o.reviewStatus === 'pending';
+      if (existingConfirmed && patchIsPending) {
+        // Confirmed objection protected — pending patch cannot increment occurrences
+        // or mutate the entry. Conflict surface deferred to Phase 7D.
+        continue;
+      }
       mergedObjections[idx] = {
         ...mergedObjections[idx],
         occurrences: (mergedObjections[idx].occurrences || 1) + 1,
@@ -231,11 +285,40 @@ export function mergeAccountKnowledge(existing, patch) {
     }
   }
 
+  // ── budget — scalar replace-on-write with confirmed protection ──
+  // A confirmed budget is never overwritten by a pending patch.
+  // Only confirmed or non-pending patches may replace a confirmed scalar.
+  let resolvedBudget = existing.budget;
+  if (patch.budget !== undefined) {
+    const existingConfirmed = existing.budget && isConfirmed(existing.budget);
+    const patchIsPending    = !patch.budget?.reviewStatus || patch.budget?.reviewStatus === 'pending';
+    if (existingConfirmed && patchIsPending) {
+      // Confirmed budget protected — pending patch silently ignored
+      resolvedBudget = existing.budget;
+    } else {
+      resolvedBudget = patch.budget;
+    }
+  }
+
+  // ── purchaseTimeline — scalar replace-on-write with confirmed protection ──
+  // Same protection rules as budget.
+  let resolvedTimeline = existing.purchaseTimeline;
+  if (patch.purchaseTimeline !== undefined) {
+    const existingConfirmed = existing.purchaseTimeline && isConfirmed(existing.purchaseTimeline);
+    const patchIsPending    = !patch.purchaseTimeline?.reviewStatus || patch.purchaseTimeline?.reviewStatus === 'pending';
+    if (existingConfirmed && patchIsPending) {
+      // Confirmed timeline protected — pending patch silently ignored
+      resolvedTimeline = existing.purchaseTimeline;
+    } else {
+      resolvedTimeline = patch.purchaseTimeline;
+    }
+  }
+
   return {
     competitors:         mergedCompetitors,
     decisionMakers:      mergedDMs,
-    budget:              patch.budget            !== undefined ? patch.budget            : existing.budget,
-    purchaseTimeline:    patch.purchaseTimeline   !== undefined ? patch.purchaseTimeline   : existing.purchaseTimeline,
+    budget:              resolvedBudget,
+    purchaseTimeline:    resolvedTimeline,
     currentTools:        mergedTools,
     businessGoals:       mergedGoals,
     recurringObjections: mergedObjections,
