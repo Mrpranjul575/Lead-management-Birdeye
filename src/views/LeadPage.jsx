@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { STAGES_ALL, STAGE_STYLE } from '../constants/stages';
-import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity } from '../data/schema';
+import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity, isConfirmed } from '../data/schema';
 import { SEQ_PLAN } from '../data/mockData';
 import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
 import { deriveSignals, deriveActivityIntelligence } from '../utils/intelligenceEngine';
@@ -247,10 +247,17 @@ function PrepareCallDrawer({ lead, onClose }) {
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const intel = lead.intelligence || {};
 
+  // Phase 7C-2C: read confirmed competitors from accountKnowledge (authoritative).
+  // Fall back to lead.competitor (top-level import field) then generic question.
+  const confirmedCompetitors = (lead.accountKnowledge?.competitors || []).filter(isConfirmed);
+  const topCompetitor = confirmedCompetitors[0]?.name || lead.competitor || null;
+
   const questions = [
     `What's holding you back from solving your ${(lead.intent||'AI visibility').toLowerCase()} issue today?`,
     `Who else is involved in this decision at ${lead.business}?`,
-    intel.competitors?.length ? `I saw you're competing with ${intel.competitors[0]} — how do you typically differentiate?` : `Who do you see as your biggest competitor right now?`,
+    topCompetitor
+      ? `I saw you're competing with ${topCompetitor} — how do you typically differentiate?`
+      : `Who do you see as your biggest competitor right now?`,
     `If we could solve your ${(lead.intent||'review').toLowerCase()} problem in 30 days, what would that mean for your business?`,
     `What's your timeline for making a decision?`,
   ];
@@ -288,10 +295,10 @@ function PrepareCallDrawer({ lead, onClose }) {
               : <span style={{ fontSize:12, color:T2 }}>None recorded yet</span>}
           </Section>
 
-          {/* Competitors */}
+          {/* Competitors — Phase 7C-2C: reads confirmed accountKnowledge, not deprecated intel field */}
           <Section title="Competitors" icon={Target} color="#F59E0B">
-            {intel.competitors?.length
-              ? intel.competitors.map((c,i)=><Bullet key={i} text={c}/>)
+            {confirmedCompetitors.length
+              ? confirmedCompetitors.map((c,i)=><Bullet key={i} text={c.name}/>)
               : <span style={{ fontSize:12, color:T2 }}>None recorded yet</span>}
           </Section>
 
@@ -443,12 +450,20 @@ function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording
         <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'16px' }}>
           <div style={{ fontSize:11, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:12 }}>Key Intelligence</div>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
-            {[
-              { label:'Pain Points',    items:intel.painPoints,     color:'#F87171' },
-              { label:'Competitors',    items:intel.competitors,    color:'#F59E0B' },
-              { label:'Objections',     items:intel.objections,     color:'#F472B6' },
-              { label:'Buying Signals', items:intel.buyingSignals,  color:'#34D399' },
-            ].map(({ label, items, color })=>(
+            {(() => {
+              // Phase 7C-2C: confirmed competitors from accountKnowledge (authoritative).
+              // Fallback to deprecated intelligence.competitors for pre-7B leads.
+              const akComps = (lead.accountKnowledge?.competitors || []).filter(isConfirmed);
+              const competitorItems = akComps.length
+                ? akComps.map(c => c.name)
+                : (intel.competitors || []);
+              return [
+                { label:'Pain Points',    items:intel.painPoints,     color:'#F87171' },
+                { label:'Competitors',    items:competitorItems,      color:'#F59E0B' },
+                { label:'Objections',     items:intel.objections,     color:'#F472B6' },
+                { label:'Buying Signals', items:intel.buyingSignals,  color:'#34D399' },
+              ];
+            })().map(({ label, items, color })=>(
               <div key={label}>
                 <div style={{ fontSize:11, fontWeight:600, color:T2, marginBottom:6 }}>{label}</div>
                 {(items||[]).length===0

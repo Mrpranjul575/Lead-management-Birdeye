@@ -3,11 +3,18 @@ import { Radar, Send, Edit2, Zap, Brain, GitBranch } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useTheme } from '../hooks/useTheme';
 import { INTENT_STYLE } from '../constants/stages';
+import { isConfirmed } from '../data/schema';
 
 // ── Derive a signal label + detail from existing lead fields ──────────────────
 function deriveSignal(lead) {
+  // Phase 7C-2C: read confirmed competitors from accountKnowledge (authoritative).
+  // Fall back to deprecated intelligence.competitors then lead.competitor (import field).
+  const confirmedAKComps = (lead.accountKnowledge?.competitors || []).filter(isConfirmed);
   const intel = lead.intelligence || {};
-  const competitor = intel.competitors?.[0] || lead.competitor || null;
+  const competitor = confirmedAKComps[0]?.name
+    || intel.competitors?.[0]
+    || lead.competitor
+    || null;
 
   if (competitor) {
     return {

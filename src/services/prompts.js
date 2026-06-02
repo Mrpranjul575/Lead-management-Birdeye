@@ -124,9 +124,9 @@ export function buildLeadContext(lead) {
     intel.buyingSignals?.length
       ? `Buying Signals: ${intel.buyingSignals.join(' | ')}`
       : null,
-    intel.decisionMakers?.length
-      ? `Decision Makers: ${intel.decisionMakers.join(', ')}`
-      : null,
+    // Decision Makers removed from intelLines — Phase 7C-2C.
+    // Deprecated intelligence.decisionMakers[] is empty for all Phase 7B+ leads.
+    // Confirmed decision makers are injected via the ACCOUNT KNOWLEDGE section below.
     // Phase 7A Fix 2: corrected field name — schema defines nextBestAction,
     // not suggestedNextAction. This line was silently dead since schema creation.
     intel.nextBestAction
