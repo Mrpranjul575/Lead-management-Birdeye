@@ -217,3 +217,74 @@ export function deriveSignals(lead) {
     buyingIntentScore: deriveBuyingIntentScore(lead),
   };
 }
+
+
+// ─── Activity Intelligence ────────────────────────────────────────────────────
+//
+// SEPARATE EXPORT — not merged into deriveSignals.
+//
+//   deriveSignals answers:           "How should this lead be prioritised?"
+//   deriveActivityIntelligence answers: "What has happened in this relationship?"
+//
+// These are distinct questions with distinct consumers. Keeping them separate
+// prevents activity history from contaminating opportunity/urgency signals.
+//
+// RECENCY NOTE: Uses activities[0].timestamp (ISO string, prepended newest-first
+// by addActivity). This resolves the documented limitation in deriveEngagementLevel,
+// which is count-only. Activity intelligence IS recency-aware because it reads
+// real timestamps from activities[], not the unparseable lead.lastTouch string.
+//
+// DETERMINISM NOTE: daysSinceLastContact uses Date.now() and is therefore
+// not deterministic across sessions — it changes each time it is called.
+// This is intentional: activity intelligence represents current relationship
+// state, not a stable scoring signal. Do NOT merge it into deriveSignals.
+
+/**
+ * deriveActivityIntelligence(lead) → ActivityIntelligence
+ *
+ * Returns relationship context derived from activity history.
+ * Call at render time — display-only, do NOT use for ranking or urgency.
+ *
+ * Graceful degradation:
+ *   - No activities → daysSinceLastContact: null, all counters: 0
+ *   - activities present → computed from real ISO timestamps
+ *
+ * @param {object} lead
+ * @returns {{ daysSinceLastContact, hasReplied, consecutiveFailures, totalOutreach }}
+ */
+export function deriveActivityIntelligence(lead) {
+  const activities = lead.activities || [];
+
+  const POSITIVE_OUTCOMES = new Set(['Replied', 'Connected', 'Positive', 'Very Positive']);
+  const FAILED_OUTCOMES   = new Set(['No Answer', 'Bounced', 'Negative']);
+  const OUTREACH_TYPES    = new Set(['Email', 'SMS', 'Voicemail', 'LinkedIn', 'Call']);
+
+  // daysSinceLastContact — from most recent activity ISO timestamp (activities[0])
+  // null when no activities exist (lead has never been contacted)
+  const latestTs = activities[0]?.timestamp;
+  const daysSinceLastContact = latestTs
+    ? Math.floor((Date.now() - new Date(latestTs).getTime()) / 86400000)
+    : null;
+
+  // hasReplied — true if any activity in full history has a positive outcome
+  const hasReplied = activities.some(a => POSITIVE_OUTCOMES.has(a.outcome));
+
+  // consecutiveFailures — count of failed outcomes at the HEAD of the history
+  // (activities[] is newest-first). A streak of failures at the top means
+  // the lead has gone dark recently.
+  let consecutiveFailures = 0;
+  for (const a of activities) {
+    if (FAILED_OUTCOMES.has(a.outcome)) consecutiveFailures++;
+    else break;
+  }
+
+  // totalOutreach — count of SDR-initiated communication activities (all time)
+  const totalOutreach = activities.filter(a => OUTREACH_TYPES.has(a.type)).length;
+
+  return {
+    daysSinceLastContact,  // number | null  — null = never contacted
+    hasReplied,            // boolean         — true = at least one positive response
+    consecutiveFailures,   // number          — 0 = no recent failures
+    totalOutreach,         // number          — total outreach activities logged
+  };
+}

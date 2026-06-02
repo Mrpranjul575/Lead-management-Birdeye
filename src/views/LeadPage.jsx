@@ -13,7 +13,7 @@ import { STAGES_ALL, STAGE_STYLE } from '../constants/stages';
 import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity } from '../data/schema';
 import { SEQ_PLAN } from '../data/mockData';
 import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
-import { deriveSignals } from '../utils/intelligenceEngine';
+import { deriveSignals, deriveActivityIntelligence } from '../utils/intelligenceEngine';
 import ActionCenter from '../components/ActionCenter';
 import NextBestStep from '../components/NextBestStep';
 import FollowUpModal from '../components/FollowUpModal';
@@ -345,8 +345,9 @@ function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording
   const { openCopilot } = useApp();
   const [recommendationOpen, setRecommendationOpen] = useState(false);
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
-  const intel   = lead.intelligence || {};
-  const derived = deriveSignals(lead);
+  const intel    = lead.intelligence || {};
+  const derived  = deriveSignals(lead);
+  const actIntel = deriveActivityIntelligence(lead);
   const recentActivities = (lead.activities || []).slice(0, 4);
 
   return (
@@ -440,6 +441,40 @@ function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
             <span style={{ fontSize:11, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em' }}>Recent Activities</span>
             <button style={{ fontSize:10, color:'#7C5CE8', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit' }}>View All</button>
+          </div>
+
+          {/* Relationship Summary — derived from activity intelligence */}
+          <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:10 }}>
+            <span style={{
+              fontSize:10, padding:'2px 7px', borderRadius:99, fontWeight:600,
+              background: actIntel.daysSinceLastContact === null  ? 'rgba(139,148,158,0.12)'
+                        : actIntel.daysSinceLastContact > 7       ? 'rgba(239,68,68,0.1)'
+                        : actIntel.daysSinceLastContact > 3       ? 'rgba(245,158,11,0.1)'
+                        : 'rgba(16,185,129,0.1)',
+              color: actIntel.daysSinceLastContact === null  ? '#8B949E'
+                   : actIntel.daysSinceLastContact > 7       ? '#F87171'
+                   : actIntel.daysSinceLastContact > 3       ? '#FCD34D'
+                   : '#34D399',
+            }}>
+              {actIntel.daysSinceLastContact === null ? 'Never contacted'
+               : actIntel.daysSinceLastContact === 0 ? 'Contacted today'
+               : `${actIntel.daysSinceLastContact}d since contact`}
+            </span>
+            {actIntel.hasReplied && (
+              <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:'rgba(16,185,129,0.1)', color:'#34D399', fontWeight:600 }}>
+                ✓ Has replied
+              </span>
+            )}
+            {actIntel.consecutiveFailures >= 2 && (
+              <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:'rgba(239,68,68,0.1)', color:'#F87171', fontWeight:600 }}>
+                ⚠ {actIntel.consecutiveFailures}× no answer
+              </span>
+            )}
+            {actIntel.totalOutreach > 0 && (
+              <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:'rgba(139,148,158,0.1)', color:'var(--t2)' }}>
+                {actIntel.totalOutreach} outreach
+              </span>
+            )}
           </div>
           <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
             {recentActivities.length===0 ? (
@@ -753,45 +788,151 @@ function AIIntelTab({ lead }) {
 
 /* ─── Tab: Timeline ─── */
 function TimelineTab({ lead }) {
-  const activities = [...(lead.activities||[])].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+  const [channelFilter, setChannelFilter] = useState('all');
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
-  const grouped = activities.reduce((acc, a) => {
+
+  const actIntel = deriveActivityIntelligence(lead);
+
+  const CHANNEL_FILTERS = [
+    { id:'all',     label:'All'     },
+    { id:'Call',    label:'Calls'   },
+    { id:'Email',   label:'Emails'  },
+    { id:'SMS',     label:'SMS'     },
+    { id:'ai',      label:'AI'      },
+    { id:'cadence', label:'Cadence' },
+  ];
+
+  const allActivities = lead.activities || [];
+  const visibleActivities = channelFilter === 'all'
+    ? allActivities
+    : channelFilter === 'ai'
+      ? allActivities.filter(a => ['AI Generation','Transcript'].includes(a.type))
+      : channelFilter === 'cadence'
+        ? allActivities.filter(a => a.type === 'Cadence Update')
+        : allActivities.filter(a => a.type === channelFilter);
+
+  const sorted  = [...visibleActivities].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
+  const grouped = sorted.reduce((acc, a) => {
     const d = new Date(a.timestamp).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
     if (!acc[d]) acc[d]=[];
     acc[d].push(a);
     return acc;
   }, {});
 
+  // Memory entries — included in the timeline as chips (read-only)
+  const memoryEntries = lead.memory || [];
+
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
-      {Object.keys(grouped).length===0 ? (
-        <div style={{ textAlign:'center', padding:'48px', color:T2 }}>No timeline entries yet. Add call notes or log activities to build the history.</div>
-      ) : Object.entries(grouped).map(([date, items])=>(
-        <div key={date}>
-          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 0 8px', borderBottom:`1px solid ${B1}`, marginBottom:12 }}>{date}</div>
-          <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20, position:'relative', paddingLeft:40 }}>
-            <div style={{ position:'absolute', left:14, top:0, bottom:-20, width:2, background:B1 }}/>
-            {items.map((a,i)=>(
-              <div key={a.activityId||i} style={{ display:'flex', alignItems:'flex-start', gap:12, position:'relative' }}>
-                <div style={{ position:'absolute', left:-26, zIndex:1 }}>
-                  <ActivityIcon type={a.type} outcome={a.outcome}/>
-                </div>
-                <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10, padding:'10px 14px', flex:1 }}>
-                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:a.details?.content?6:0 }}>
-                    <span style={{ fontSize:12, fontWeight:600, color:T1 }}>{a.summary}</span>
-                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                      {a.outcome && <span style={{ fontSize:10, fontWeight:600, color:outcomeColor(a.outcome) }}>{a.outcome}</span>}
-                      <span style={{ fontSize:10, color:T2 }}>{new Date(a.timestamp).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span>
+
+      {/* Relationship Summary header */}
+      <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:14, paddingBottom:12, borderBottom:`1px solid ${B1}` }}>
+        <span style={{
+          fontSize:10, padding:'2px 7px', borderRadius:99, fontWeight:600,
+          background: actIntel.daysSinceLastContact === null  ? 'rgba(139,148,158,0.12)'
+                    : actIntel.daysSinceLastContact > 7       ? 'rgba(239,68,68,0.1)'
+                    : actIntel.daysSinceLastContact > 3       ? 'rgba(245,158,11,0.1)'
+                    : 'rgba(16,185,129,0.1)',
+          color: actIntel.daysSinceLastContact === null  ? '#8B949E'
+               : actIntel.daysSinceLastContact > 7       ? '#F87171'
+               : actIntel.daysSinceLastContact > 3       ? '#FCD34D'
+               : '#34D399',
+        }}>
+          {actIntel.daysSinceLastContact === null ? 'Never contacted'
+           : actIntel.daysSinceLastContact === 0 ? 'Contacted today'
+           : `${actIntel.daysSinceLastContact}d since contact`}
+        </span>
+        {actIntel.hasReplied && (
+          <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:'rgba(16,185,129,0.1)', color:'#34D399', fontWeight:600 }}>✓ Has replied</span>
+        )}
+        {actIntel.consecutiveFailures >= 2 && (
+          <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:'rgba(239,68,68,0.1)', color:'#F87171', fontWeight:600 }}>
+            ⚠ {actIntel.consecutiveFailures}× no answer
+          </span>
+        )}
+        {actIntel.totalOutreach > 0 && (
+          <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:'rgba(139,148,158,0.1)', color:T2 }}>
+            {actIntel.totalOutreach} outreach logged
+          </span>
+        )}
+      </div>
+
+      {/* Channel filter bar */}
+      <div style={{ display:'flex', gap:4, marginBottom:14 }}>
+        {CHANNEL_FILTERS.map(f => {
+          const active = channelFilter === f.id;
+          return (
+            <button key={f.id} onClick={() => setChannelFilter(f.id)} style={{
+              padding:'4px 10px', borderRadius:99, border:'none', cursor:'pointer',
+              background: active ? 'var(--p)' : 'var(--s3)',
+              color: active ? '#fff' : T2,
+              fontSize:10, fontWeight: active ? 600 : 400,
+              fontFamily:'inherit', transition:'all 0.12s',
+            }}>
+              {f.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Timeline entries */}
+      {Object.keys(grouped).length===0 && memoryEntries.length===0 ? (
+        <div style={{ textAlign:'center', padding:'48px', color:T2 }}>
+          {channelFilter === 'all'
+            ? 'No timeline entries yet. Add call notes or log activities to build the history.'
+            : `No ${CHANNEL_FILTERS.find(f=>f.id===channelFilter)?.label || channelFilter} entries yet.`}
+        </div>
+      ) : (
+        <>
+          {Object.entries(grouped).map(([date, items])=>(
+            <div key={date}>
+              <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 0 8px', borderBottom:`1px solid ${B1}`, marginBottom:12 }}>{date}</div>
+              <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20, position:'relative', paddingLeft:40 }}>
+                <div style={{ position:'absolute', left:14, top:0, bottom:-20, width:2, background:B1 }}/>
+                {items.map((a,i)=>(
+                  <div key={a.activityId||i} style={{ display:'flex', alignItems:'flex-start', gap:12, position:'relative' }}>
+                    <div style={{ position:'absolute', left:-26, zIndex:1 }}>
+                      <ActivityIcon type={a.type} outcome={a.outcome}/>
+                    </div>
+                    <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10, padding:'10px 14px', flex:1 }}>
+                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:a.details?.content?6:0 }}>
+                        <span style={{ fontSize:12, fontWeight:600, color:T1 }}>{a.summary}</span>
+                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                          {a.outcome && <span style={{ fontSize:10, fontWeight:600, color:outcomeColor(a.outcome) }}>{a.outcome}</span>}
+                          <span style={{ fontSize:10, color:T2 }}>{new Date(a.timestamp).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span>
+                        </div>
+                      </div>
+                      {a.details?.content && <p style={{ fontSize:11, color:T2, lineHeight:1.6, margin:0 }}>{a.details.content}</p>}
+                      {a.details?.nextStep && <p style={{ fontSize:11, color:'#7C5CE8', margin:'4px 0 0', fontWeight:500 }}>→ {a.details.nextStep}</p>}
                     </div>
                   </div>
-                  {a.details?.content && <p style={{ fontSize:11, color:T2, lineHeight:1.6, margin:0 }}>{a.details.content}</p>}
-                  {a.details?.nextStep && <p style={{ fontSize:11, color:'#7C5CE8', margin:'4px 0 0', fontWeight:500 }}>→ {a.details.nextStep}</p>}
-                </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      ))}
+            </div>
+          ))}
+
+          {/* Memory entries — shown at bottom of timeline when filter is 'all', read-only chips */}
+          {channelFilter === 'all' && memoryEntries.length > 0 && (
+            <div>
+              <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 0 8px', borderBottom:`1px solid ${B1}`, marginBottom:12 }}>
+                Memory &amp; Context
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                {memoryEntries.map(m => (
+                  <div key={m.id} style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'8px 10px', borderRadius:8, background:'var(--s2)', border:`1px solid ${B1}` }}>
+                    <div style={{ width:5, height:5, borderRadius:'50%', background:'#7C5CE8', flexShrink:0, marginTop:5 }}/>
+                    <span style={{ fontSize:11, color:T1, flex:1, lineHeight:1.5 }}>{m.text}</span>
+                    <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                      {m.tag && <span style={{ fontSize:9, fontWeight:600, padding:'1px 6px', borderRadius:99, background:'rgba(91,63,200,0.12)', color:'#7C5CE8' }}>{m.tag}</span>}
+                      <span style={{ fontSize:9, color:T2 }}>{m.date}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

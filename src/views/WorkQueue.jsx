@@ -8,7 +8,7 @@ import { STAGE_STYLE, INTENT_STYLE } from '../constants/stages';
 import ScoreRing from '../components/ui/ScoreRing';
 import NextBestStep from '../components/NextBestStep';
 import { useApp } from '../context/AppContext';
-import { deriveSignals } from '../utils/intelligenceEngine';
+import { deriveSignals, deriveActivityIntelligence } from '../utils/intelligenceEngine';
 import { getPendingSteps } from '../utils/cadenceUtils';
 
 /* Numeric urgency order for sort comparator — precomputed once, never called in the sort loop */
@@ -123,9 +123,10 @@ export default function WorkQueue() {
    */
   const ranked = useMemo(() => {
     const items = filtered.map(lead => {
-      const derived    = deriveSignals(lead);
-      const hasPending = getPendingSteps(lead).length > 0;
-      const recentAct  = new Date(lead.activities?.[0]?.timestamp || 0).getTime();
+      const derived       = deriveSignals(lead);
+      const activityIntel = deriveActivityIntelligence(lead);
+      const hasPending    = getPendingSteps(lead).length > 0;
+      const recentAct     = new Date(lead.activities?.[0]?.timestamp || 0).getTime();
 
       // Build human-readable sort reason for tooltip explainability
       const parts = [];
@@ -138,11 +139,12 @@ export default function WorkQueue() {
 
       return {
         lead,
-        aiScore:        lead.aiScore     || 0,
+        aiScore:        lead.aiScore  || 0,
         urgencyOrder:   URGENCY_ORDER[derived.urgency] ?? 3,
         hasPending,
         recentActivity: recentAct,
         sortReason:     parts.join(' + ') || 'Base Order',
+        activityIntel,  // grouped per architecture preference
       };
     });
 
@@ -292,7 +294,7 @@ export default function WorkQueue() {
 
         {/* ── Rows ── */}
         <div>
-          {ranked.map(({ lead, sortReason }) => {
+          {ranked.map(({ lead, sortReason, activityIntel }) => {
             const stageStyle  = STAGE[lead.stage]  || STAGE['New'];
             const intentStyle = INTENT[lead.intent] || INTENT['AI Visibility'];
             const isSel       = selected.has(lead.id);
@@ -367,9 +369,26 @@ export default function WorkQueue() {
                   <NextBestStep lead={lead} compact/>
                 </div>
 
-                {/* Last Touch */}
-                <div style={{ fontSize:10, color:T2, display:'flex', alignItems:'center', gap:4 }}>
-                  <Clock size={9}/> {lead.lastTouch}
+                {/* Last Touch — derived from activity timestamps (display-only, no ranking effect) */}
+                <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+                  <div style={{
+                    fontSize:10,
+                    color: activityIntel.daysSinceLastContact === null ? T2
+                         : activityIntel.daysSinceLastContact > 7      ? '#F87171'
+                         : activityIntel.daysSinceLastContact > 3      ? '#FCD34D'
+                         : '#34D399',
+                    display:'flex', alignItems:'center', gap:4,
+                  }}>
+                    <Clock size={9}/>
+                    {activityIntel.daysSinceLastContact === null ? 'Never'
+                     : activityIntel.daysSinceLastContact === 0 ? 'Today'
+                     : `${activityIntel.daysSinceLastContact}d ago`}
+                  </div>
+                  {activityIntel.consecutiveFailures >= 2 && (
+                    <div style={{ fontSize:9, color:'#F87171' }}>
+                      ⚠ {activityIntel.consecutiveFailures}× failed
+                    </div>
+                  )}
                 </div>
 
                 {/* Status pill */}
