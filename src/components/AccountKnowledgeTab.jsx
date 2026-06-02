@@ -1,25 +1,19 @@
 /**
- * AccountKnowledgeTab — Phase 7C-2D
+ * AccountKnowledgeTab — Phase 7C-2D / 7D-C
  *
- * Displays account knowledge facts for a lead with SDR review workflow.
- *
- * Sections:
+ * Sections (top to bottom):
+ *   Conflicts     — confirmed facts contested by new extractions (Phase 7D-C)
  *   Pending Review — AI-extracted facts awaiting SDR confirmation
- *   Confirmed Facts — Trusted account facts, read-only display with provenance
+ *   Confirmed Facts — Trusted account facts, read-only with provenance
  *
  * Actions available:
- *   confirmAccountKnowledgeFact(leadId, field, identityKey)
- *   dismissAccountKnowledgeFact(leadId, field, identityKey)
- *   bulkConfirmAccountKnowledge(leadId)
- *
- * Scope exclusions (Phase 7C-2D):
- *   No Add Manually forms (Phase 7D)
- *   No confirmed-fact editing (Phase 7D)
- *   No confirmed-fact dismissal (Phase 7D)
- *   No conflict resolution UI (Phase 7D)
+ *   confirmAccountKnowledgeFact, dismissAccountKnowledgeFact,
+ *   bulkConfirmAccountKnowledge,
+ *   resolveConflict, keepExistingFact, supersedeFact
  */
 
-import { CheckCircle2, X, AlertCircle, ShieldCheck } from 'lucide-react';
+import { useState } from 'react';
+import { CheckCircle2, X, AlertCircle, ShieldCheck, Zap } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { isConfirmed, hasConflict } from '../data/schema';
 
@@ -81,6 +75,85 @@ function collectPendingItems(ak) {
     items.push({ field: 'purchaseTimeline', identityKey: null, item: ak.purchaseTimeline });
   }
   return items;
+}
+
+// ── Collect conflict items as a flat list (Phase 7D-C) ───────────────────────
+// businessGoals and recurringObjections never carry conflictWith
+// (hasMeaningfulDifference returns false for them), so they are excluded.
+// Array field order: competitors, decisionMakers, currentTools; scalars last.
+function collectConflictItems(ak) {
+  if (!ak) return [];
+  const items = [];
+  for (const field of ['competitors', 'decisionMakers', 'currentTools']) {
+    for (const item of (ak[field] || [])) {
+      if (hasConflict(item)) {
+        items.push({ field, identityKey: item[FIELD_META[field].identityProp], item });
+      }
+    }
+  }
+  if (hasConflict(ak.budget))           items.push({ field: 'budget',           identityKey: null, item: ak.budget });
+  if (hasConflict(ak.purchaseTimeline)) items.push({ field: 'purchaseTimeline',  identityKey: null, item: ak.purchaseTimeline });
+  return items;
+}
+
+// ── Render the conflictWith values for a given field (Phase 7D-C) ──────────────
+// Returns { primary, secondary } display strings for the extraction side.
+// Intentionally separate from getPrimaryValue/getSecondaryValue which render
+// the confirmed entry. Both answer different questions.
+function getConflictDisplayValues(field, cw) {
+  if (!cw) return { primary: '—', secondary: null };
+  const norm = v => (v && v !== 'unknown') ? v : null;
+  switch (field) {
+    case 'competitors':
+      return {
+        primary:   norm(cw.strength) || '—',
+        secondary: cw.context || null,
+      };
+    case 'decisionMakers':
+      return {
+        primary:   cw.role || '—',
+        secondary: norm(cw.authority),
+      };
+    case 'currentTools':
+      return { primary: cw.category || '—', secondary: null };
+    case 'budget':
+      return {
+        primary:   [norm(cw.status), cw.amount || null].filter(Boolean).join(' — ') || '—',
+        secondary: cw.notes || null,
+      };
+    case 'purchaseTimeline':
+      return {
+        primary:   [norm(cw.urgency), cw.targetDate || null].filter(Boolean).join(' — ') || '—',
+        secondary: cw.notes || null,
+      };
+    default: return { primary: '—', secondary: null };
+  }
+}
+
+// ── Build the newItem for supersedeFact from the conflictWith values ──────────
+// Supersede is only offered for decisionMakers and currentTools (Modification 1).
+function buildNewItemFromConflict(field, item) {
+  const cw   = item.conflictWith;
+  const meta = FIELD_META[field];
+  if (!cw || !meta.identityProp) return null;
+  const base = { [meta.identityProp]: item[meta.identityProp] };
+  ['strength','context','role','authority','notes','category'].forEach(f => {
+    if (cw[f] !== undefined) base[f] = cw[f];
+  });
+  base.source     = cw.source     || 'transcript';
+  base.sourceDate = cw.sourceDate || new Date().toISOString();
+  return base;
+}
+
+// ── Conflict age label (Modification 3) ───────────────────────────────────────
+// Returns "Open Xd" or "Open Today" based on conflictWith.sourceDate.
+function conflictAgeLabel(sourceDate) {
+  if (!sourceDate) return null;
+  const d = new Date(sourceDate);
+  if (isNaN(d)) return null;
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days === 0) return '⚡ Open today';
+  return `⚡ Open ${days}d`;
 }
 
 // ── Count all pending items ────────────────────────────────────────────────────
@@ -231,6 +304,138 @@ function PendingCard({ field, identityKey, item, lead }) {
   );
 }
 
+// ── ConflictCard — one conflict resolution card (Phase 7D-C) ─────────────────
+// Shows current confirmed value vs. AI-extracted value side-by-side.
+// Keep Existing: keepExistingFact
+// Accept Extracted: resolveConflict(..., 'accept')
+// Supersede →: supersedeFact (decisionMakers and currentTools only — Mod 1)
+function ConflictCard({ field, identityKey, item, lead }) {
+  const { keepExistingFact, resolveConflict, supersedeFact } = useApp();
+  const meta           = FIELD_META[field];
+  const confirmedPrimary   = getPrimaryValue(field, item);
+  const confirmedSecondary = getSecondaryValue(field, item);
+  const { primary: cwPrimary, secondary: cwSecondary } = getConflictDisplayValues(field, item.conflictWith);
+  const ageLabel = conflictAgeLabel(item.conflictWith?.sourceDate);
+  // Supersede only offered for decisionMakers and currentTools (Modification 1)
+  const showSupersede = field === 'decisionMakers' || field === 'currentTools';
+  const T1 = 'var(--t1)', T2 = 'var(--t2)', B1 = 'var(--b1)';
+
+  const handleSupersede = () => {
+    const newItem = buildNewItemFromConflict(field, item);
+    if (newItem) supersedeFact(lead.id, field, identityKey, newItem);
+  };
+
+  return (
+    <div style={{
+      borderRadius: 9, border: '1px solid rgba(239,68,68,0.28)',
+      background: 'rgba(239,68,68,0.03)', overflow: 'hidden',
+    }}>
+      {/* Card header — field pill + conflict age */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '7px 12px', borderBottom: '1px solid rgba(239,68,68,0.15)',
+        background: 'rgba(239,68,68,0.06)',
+      }}>
+        <span style={{
+          fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
+          background: `${meta.color}18`, color: meta.color,
+        }}>
+          {meta.singular}
+        </span>
+        {ageLabel && (
+          <span style={{ fontSize: 9, fontWeight: 600, color: '#F87171' }}>{ageLabel}</span>
+        )}
+      </div>
+
+      {/* Two-column comparison */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
+        {/* Current confirmed */}
+        <div style={{ padding: '10px 12px', borderRight: '1px solid rgba(239,68,68,0.15)' }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: T2, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+            Current (confirmed)
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: T1, marginBottom: confirmedSecondary ? 2 : 0 }}>
+            {confirmedPrimary}
+          </div>
+          {confirmedSecondary && <div style={{ fontSize: 11, color: T2 }}>{confirmedSecondary}</div>}
+          <div style={{ marginTop: 5 }}>
+            <SourceBadge source={item.source} date={formatRelativeDate(item.sourceDate)} />
+          </div>
+        </div>
+
+        {/* Extracted */}
+        <div style={{ padding: '10px 12px' }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: T2, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+            Extracted
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: T1, marginBottom: cwSecondary ? 2 : 0 }}>
+            {cwPrimary}
+          </div>
+          {cwSecondary && <div style={{ fontSize: 11, color: T2 }}>{cwSecondary}</div>}
+          <div style={{ marginTop: 5 }}>
+            <SourceBadge
+              source={item.conflictWith?.source || 'transcript'}
+              date={formatRelativeDate(item.conflictWith?.sourceDate)}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div style={{
+        display: 'flex', gap: 6, padding: '8px 12px',
+        borderTop: '1px solid rgba(239,68,68,0.12)',
+        background: 'rgba(0,0,0,0.08)',
+      }}>
+        <button
+          onClick={() => keepExistingFact(lead.id, field, identityKey)}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+            padding: '5px 0', borderRadius: 7,
+            border: '1px solid rgba(16,185,129,0.3)', background: 'rgba(16,185,129,0.07)',
+            color: '#10B981', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            transition: 'background 0.12s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.18)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(16,185,129,0.07)'; }}
+        >
+          <CheckCircle2 size={10} /> Keep Existing
+        </button>
+        <button
+          onClick={() => resolveConflict(lead.id, field, identityKey, 'accept')}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+            padding: '5px 0', borderRadius: 7,
+            border: '1px solid rgba(59,130,246,0.3)', background: 'rgba(59,130,246,0.07)',
+            color: '#60A5FA', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            transition: 'background 0.12s',
+          }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.18)'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(59,130,246,0.07)'; }}
+        >
+          <CheckCircle2 size={10} /> Accept Extracted
+        </button>
+        {showSupersede && (
+          <button
+            onClick={handleSupersede}
+            style={{
+              flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4,
+              padding: '5px 0', borderRadius: 7,
+              border: '1px solid rgba(124,92,232,0.3)', background: 'rgba(124,92,232,0.07)',
+              color: '#7C5CE8', fontSize: 10, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+              transition: 'background 0.12s',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(124,92,232,0.18)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(124,92,232,0.07)'; }}
+          >
+            <Zap size={10} /> Supersede →
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── AKItem — one confirmed fact row ────────────────────────────────────────────
 function AKItem({ field, item }) {
   const meta      = FIELD_META[field];
@@ -308,10 +513,18 @@ function AKCategory({ field, ak }) {
 
 // ── AccountKnowledgeTab ────────────────────────────────────────────────────────
 export default function AccountKnowledgeTab({ lead }) {
-  const { bulkConfirmAccountKnowledge } = useApp();
-  const ak           = lead.accountKnowledge;
-  const pendingItems = collectPendingItems(ak);
-  const pendingCount = pendingItems.length;
+  const { bulkConfirmAccountKnowledge, resolveConflict, keepExistingFact, supersedeFact } = useApp();
+  const [conflictsExpanded, setConflictsExpanded] = useState(false);
+  const ak            = lead.accountKnowledge;
+  const pendingItems  = collectPendingItems(ak);
+  const conflictItems = collectConflictItems(ak);
+  const pendingCount  = pendingItems.length;
+  const conflictCount = conflictItems.length;
+  // Modification 2: collapse when > 5 conflicts; show first 5 with expand button
+  const CONFLICT_COLLAPSE_THRESHOLD = 5;
+  const visibleConflicts = conflictCount > CONFLICT_COLLAPSE_THRESHOLD && !conflictsExpanded
+    ? conflictItems.slice(0, CONFLICT_COLLAPSE_THRESHOLD)
+    : conflictItems;
   const T1 = 'var(--t1)', T2 = 'var(--t2)', B1 = 'var(--b1)';
 
   // Check if any confirmed facts exist across all fields
@@ -325,6 +538,59 @@ export default function AccountKnowledgeTab({ lead }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+
+      {/* ── Conflict section (Phase 7D-C) ───────────────────────────────────── */}
+      {conflictCount > 0 && (
+        <div style={{
+          borderRadius: 12, border: '1px solid rgba(239,68,68,0.3)',
+          background: 'rgba(239,68,68,0.02)', overflow: 'hidden',
+        }}>
+          {/* Section header */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '10px 14px',
+            borderBottom: '1px solid rgba(239,68,68,0.18)',
+            background: 'rgba(239,68,68,0.06)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <Zap size={13} color="#F87171" />
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#F87171' }}>
+                {conflictCount} conflict{conflictCount !== 1 ? 's' : ''} need{conflictCount === 1 ? 's' : ''} resolution
+              </span>
+              <span style={{ fontSize: 10, color: T2 }}>— fact{conflictCount !== 1 ? 's' : ''} excluded from AI context</span>
+            </div>
+          </div>
+
+          {/* Conflict cards */}
+          <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {visibleConflicts.map((c, i) => (
+              <ConflictCard
+                key={`${c.field}-${c.identityKey ?? 'scalar'}-${i}`}
+                field={c.field}
+                identityKey={c.identityKey}
+                item={c.item}
+                lead={lead}
+              />
+            ))}
+
+            {/* Expand/collapse button — only shown when > 5 conflicts */}
+            {conflictCount > CONFLICT_COLLAPSE_THRESHOLD && (
+              <button
+                onClick={() => setConflictsExpanded(e => !e)}
+                style={{
+                  alignSelf: 'flex-start', fontSize: 11, fontWeight: 600,
+                  color: '#F87171', background: 'none', border: 'none',
+                  cursor: 'pointer', fontFamily: 'inherit', padding: '2px 0',
+                }}
+              >
+                {conflictsExpanded
+                  ? `▲ Show fewer`
+                  : `▼ Show ${conflictCount - CONFLICT_COLLAPSE_THRESHOLD} more conflict${conflictCount - CONFLICT_COLLAPSE_THRESHOLD !== 1 ? 's' : ''}`}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Pending Review section ──────────────────────────────────────────── */}
       {pendingCount > 0 && (
@@ -344,7 +610,7 @@ export default function AccountKnowledgeTab({ lead }) {
               <span style={{ fontSize: 12, fontWeight: 700, color: '#F59E0B' }}>
                 {pendingCount} fact{pendingCount !== 1 ? 's' : ''} pending review
               </span>
-              <span style={{ fontSize: 10, color: 'var(--t2)' }}>
+              <span style={{ fontSize: 10, color: T2 }}>
                 — not yet in AI prompt context
               </span>
             </div>
