@@ -1,10 +1,11 @@
 /**
- * AccountKnowledgeTab — Phase 7C-2D / 7D-C
+ * AccountKnowledgeTab — Phase 7C-2D / 7D-C / 7D-E
  *
  * Sections (top to bottom):
- *   Conflicts     — confirmed facts contested by new extractions (Phase 7D-C)
- *   Pending Review — AI-extracted facts awaiting SDR confirmation
+ *   Conflicts       — confirmed facts contested by new extractions (Phase 7D-C)
+ *   Pending Review  — AI-extracted facts awaiting SDR confirmation
  *   Confirmed Facts — Trusted account facts, read-only with provenance
+ *   History         — Superseded facts, collapsed by default (Phase 7D-E)
  *
  * Actions available:
  *   confirmAccountKnowledgeFact, dismissAccountKnowledgeFact,
@@ -155,6 +156,38 @@ function conflictAgeLabel(sourceDate) {
   const days = Math.floor((Date.now() - d.getTime()) / 86400000);
   if (days === 0) return '⚡ Open today';
   return `⚡ Open ${days}d`;
+}
+
+// ── Collect superseded (historical) items as a flat list (Phase 7D-E) ─────────
+// Only fields that participate in supersession: competitors, decisionMakers,
+// currentTools. Dismissed items intentionally excluded — rejected, not replaced.
+// Sorted by reviewedAt descending (most recently superseded first).
+function collectHistoryItems(ak) {
+  if (!ak) return [];
+  const items = [];
+  for (const field of ['competitors', 'decisionMakers', 'currentTools']) {
+    for (const item of (ak[field] || [])) {
+      if (item.reviewStatus === 'superseded') {
+        items.push({ field, item });
+      }
+    }
+  }
+  // Sort descending by reviewedAt — most recently superseded first
+  items.sort((a, b) => {
+    const tA = a.item.reviewedAt ? new Date(a.item.reviewedAt).getTime() : 0;
+    const tB = b.item.reviewedAt ? new Date(b.item.reviewedAt).getTime() : 0;
+    return tB - tA;
+  });
+  return items;
+}
+
+// ── Count all superseded (historical) items ───────────────────────────────────
+export function countHistory(ak) {
+  if (!ak) return 0;
+  let n = 0;
+  ['competitors', 'decisionMakers', 'currentTools']
+    .forEach(f => { n += (ak[f] || []).filter(i => i.reviewStatus === 'superseded').length; });
+  return n;
 }
 
 // ── Count all pending items ────────────────────────────────────────────────────
@@ -563,15 +596,85 @@ function AKCategory({ field, ak, leadId }) {
   );
 }
 
+// ── HistoryItem — one superseded fact row (Phase 7D-E) ────────────────────────
+// Read-only. No actions. Muted styling to signal historical context.
+function HistoryItem({ field, item }) {
+  const meta      = FIELD_META[field];
+  const primary   = getPrimaryValue(field, item);
+  const secondary = getSecondaryValue(field, item);
+  const T1 = 'var(--t1)', T2 = 'var(--t2)', B1 = 'var(--b1)';
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 8,
+      padding: '7px 10px', borderRadius: 8,
+      border: `1px solid ${B1}`, background: 'var(--bg)',
+      opacity: 0.6,
+    }}>
+      <div style={{
+        width: 6, height: 6, borderRadius: '50%',
+        background: meta.color, flexShrink: 0, marginTop: 5,
+        filter: 'grayscale(0.5)',
+      }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 500, color: T1 }}>{primary}</div>
+        {secondary && (
+          <div style={{ fontSize: 11, color: T2, marginTop: 1 }}>{secondary}</div>
+        )}
+        <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+          <SourceBadge source={item.source} date={''} />
+          {item.reviewedAt && (
+            <span style={{ fontSize: 9, color: T2 }}>
+              Superseded {formatRelativeDate(item.reviewedAt)}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── HistoryCategory — one historical category section (Phase 7D-E) ────────────
+// Only renders when superseded items exist for this field.
+function HistoryCategory({ field, items }) {
+  const meta = FIELD_META[field];
+  const T2   = 'var(--t2)';
+
+  if (!items.length) return null;
+
+  return (
+    <div>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6,
+        opacity: 0.7,
+      }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color }} />
+        <span style={{ fontSize: 10, fontWeight: 700, color: T2, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          {meta.label}
+        </span>
+        <span style={{ fontSize: 10, color: T2, opacity: 0.6 }}>({items.length})</span>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+        {items.map((entry, i) => (
+          <HistoryItem key={i} field={entry.field} item={entry.item} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── AccountKnowledgeTab ────────────────────────────────────────────────────────
 export default function AccountKnowledgeTab({ lead }) {
   const { bulkConfirmAccountKnowledge, resolveConflict, keepExistingFact, supersedeFact } = useApp();
   const [conflictsExpanded, setConflictsExpanded] = useState(false);
+  const [historyExpanded,   setHistoryExpanded]   = useState(false);
   const ak            = lead.accountKnowledge;
   const pendingItems  = collectPendingItems(ak);
   const conflictItems = collectConflictItems(ak);
+  const historyItems  = collectHistoryItems(ak);
   const pendingCount  = pendingItems.length;
   const conflictCount = conflictItems.length;
+  const historyCount  = historyItems.length;
   // Modification 2: collapse when > 5 conflicts; show first 5 with expand button
   const CONFLICT_COLLAPSE_THRESHOLD = 5;
   const visibleConflicts = conflictCount > CONFLICT_COLLAPSE_THRESHOLD && !conflictsExpanded
@@ -729,6 +832,53 @@ export default function AccountKnowledgeTab({ lead }) {
           </div>
         )}
       </div>
+
+      {/* ── Knowledge History section (Phase 7D-E) ─────────────────────────── */}
+      {historyCount > 0 && (
+        <div style={{ borderRadius: 12, border: `1px solid ${B1}` }}>
+          {/* Collapsible header — muted, low-priority visual treatment */}
+          <button
+            onClick={() => setHistoryExpanded(h => !h)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 7,
+              width: '100%', padding: '10px 14px', border: 'none',
+              background: 'transparent', cursor: 'pointer', fontFamily: 'inherit',
+              borderRadius: historyExpanded ? '12px 12px 0 0' : 12,
+              borderBottom: historyExpanded ? `1px solid ${B1}` : 'none',
+            }}
+          >
+            <span style={{ fontSize: 10, color: T2 }}>
+              {historyExpanded ? '▼' : '▶'}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: T2 }}>
+              Knowledge History
+            </span>
+            <span style={{ fontSize: 10, color: T2, opacity: 0.6 }}>
+              ({historyCount} {historyCount === 1 ? 'entry' : 'entries'})
+            </span>
+          </button>
+
+          {/* History entries — grouped by field, sorted by reviewedAt desc */}
+          {historyExpanded && (() => {
+            // Group history items by field
+            const byField = {};
+            for (const entry of historyItems) {
+              if (!byField[entry.field]) byField[entry.field] = [];
+              byField[entry.field].push(entry);
+            }
+            return (
+              <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {['competitors', 'decisionMakers', 'currentTools']
+                  .filter(f => byField[f]?.length)
+                  .map(f => (
+                    <HistoryCategory key={f} field={f} items={byField[f]} />
+                  ))
+                }
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
     </div>
   );
