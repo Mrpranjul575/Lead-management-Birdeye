@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { STAGE_STYLE, INTENT_STYLE } from '../constants/stages';
 import ScoreRing from '../components/ui/ScoreRing';
+import NextBestStep from '../components/NextBestStep';
 import { useApp } from '../context/AppContext';
 
 /* ─── Stat card data — exact match to screen ─── */
@@ -284,8 +285,8 @@ export default function WorkQueue() {
                 </div>
 
                 {/* Next Action */}
-                <div style={{ fontSize:11, color:T1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                  {lead.nextAction}
+                <div>
+                  <NextBestStep lead={lead} compact/>
                 </div>
 
                 {/* Last Touch */}

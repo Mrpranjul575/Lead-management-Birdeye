@@ -478,6 +478,11 @@ function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording
         </div>
       </div>
 
+      {/* Next Best Steps — full card */}
+      <div style={{ gridColumn:'span 4' }}>
+        <NextBestStep lead={lead}/>
+      </div>
+
       {/* Bottom row — Quick Actions, AI Copilot, Lead Memory, Files */}
       <div style={{ gridColumn:'span 4', display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:14 }}>
 

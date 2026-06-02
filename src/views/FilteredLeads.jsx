@@ -1,5 +1,6 @@
 import { STAGE_STYLE, INTENT_STYLE } from '../constants/stages';
 import MyLeads from './MyLeads';
+import NextBestStep from '../components/NextBestStep';
 import { useApp } from '../context/AppContext';
 
 // Temporarily override leads in context with filtered subset
@@ -97,7 +98,7 @@ function FilteredView({ stage, title, sub, emoji }) {
                 <div style={{ fontSize:12, fontWeight:600, color:T1 }}>{lead.reviews}</div>
                 <div style={{ fontSize:11, fontWeight:600, color:lead.aiVisibility<15?'#EF4444':lead.aiVisibility<25?'#F59E0B':'#10B981' }}>{lead.aiVisibility}%</div>
                 <div style={{ fontSize:10, color:T2 }}>{lead.lastTouch}</div>
-                <div style={{ fontSize:11, color:T1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{lead.nextAction}</div>
+                <div><NextBestStep lead={lead} compact/></div>
                 <div/>
               </div>
             );
