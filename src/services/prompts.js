@@ -255,7 +255,21 @@ Rules:
 - Each ends with exactly ONE question as the CTA
 - Sign off as: Paul | Senior SDR, Birdeye
 
-Label exactly as: === EMAIL 1 === / === EMAIL 2 === / === EMAIL 3 ===`;
+Label each email exactly as:
+=== EMAIL 1 ===
+Subject: [subject line]
+
+[email body]
+
+=== EMAIL 2 ===
+Subject: [subject line]
+
+[email body]
+
+=== EMAIL 3 ===
+Subject: [subject line]
+
+[email body]`;
 }
 
 // ─── SMS prompt ───────────────────────────────────────────────────────────────
@@ -281,7 +295,15 @@ Rules:
 
 The contact's first name is: ${firstName}
 
-Label exactly as: === SMS 1 === / === SMS 2 === / === SMS 3 ===`;
+Label each SMS exactly as:
+=== SMS 1 ===
+[sms text under 160 chars]
+
+=== SMS 2 ===
+[sms text under 160 chars]
+
+=== SMS 3 ===
+[sms text under 160 chars]`;
 }
 
 // ─── Voicemail prompt ─────────────────────────────────────────────────────────
@@ -339,7 +361,15 @@ FOLLOW-UP 2 (3-5 days later — max 400 chars):
 - Tie it to their specific situation
 - End with a low-friction CTA (10-min call, not "schedule a demo")
 
-Label exactly as: === CONNECTION REQUEST === / === FOLLOW-UP 1 === / === FOLLOW-UP 2 ===`;
+Label each message exactly as:
+=== CONNECTION REQUEST ===
+[message]
+
+=== FOLLOW-UP 1 ===
+[message]
+
+=== FOLLOW-UP 2 ===
+[message]`;
 }
 
 // ─── AE Notes generator ───────────────────────────────────────────────────────

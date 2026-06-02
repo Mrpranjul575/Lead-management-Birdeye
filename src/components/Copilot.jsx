@@ -6,6 +6,7 @@ import { X, Zap, Copy, ExternalLink, CheckCircle2, ArrowRight,
 import { useApp } from '../context/AppContext';
 import { buildPrompt } from '../services/prompts';
 import callAI from '../services/aiProvider';
+import { SheetsAdapter } from '../services/sheetsAdapter';
 
 const SHORTCUTS = [
   { id:'email',       icon:Mail,          label:'Generate Email',    desc:'Hyper-personalised outreach email',  color:'#7C5CE8', bg:'rgba(91,63,200,0.12)'  },
@@ -108,6 +109,47 @@ function Launcher({ theme, onSelect }) {
   );
 }
 
+// ── Claude output parser ──────────────────────────────────────────────────────
+function parseClaudeOutput(mode, rawText) {
+  if (!rawText?.trim()) return { subject: '', body: rawText || '', raw: rawText || '' };
+
+  const extract = (startTag, endTag) => {
+    const s = rawText.indexOf(startTag);
+    if (s === -1) return '';
+    const e = endTag ? rawText.indexOf(endTag) : rawText.length;
+    return rawText.slice(s + startTag.length, e === -1 ? rawText.length : e).trim();
+  };
+
+  if (mode === 'email') {
+    const email1 = extract('=== EMAIL 1 ===', '=== EMAIL 2 ===') ||
+                   extract('EMAIL_1_START', 'EMAIL_1_END') ||
+                   rawText;
+    const subjectMatch = email1.match(/Subject:\s*(.+)/i);
+    const subject = subjectMatch ? subjectMatch[1].trim() : '';
+    const body = email1.replace(/Subject:.+/i, '').trim();
+    return { subject, body, raw: rawText };
+  }
+
+  if (mode === 'sms') {
+    const sms1 = extract('=== SMS 1 ===', '=== SMS 2 ===') ||
+                 extract('SMS_1_START', 'SMS_1_END') ||
+                 rawText;
+    return { subject: 'SMS', body: sms1.trim(), raw: rawText };
+  }
+
+  if (mode === 'voicemail') {
+    return { subject: '30-sec Voicemail', body: rawText.trim(), raw: rawText };
+  }
+
+  if (mode === 'linkedin') {
+    const connection = extract('=== CONNECTION REQUEST ===', '=== FOLLOW-UP 1 ===') ||
+                       rawText;
+    return { subject: 'LinkedIn Connection', body: connection.trim(), raw: rawText };
+  }
+
+  return { subject: mode, body: rawText.trim(), raw: rawText };
+}
+
 // ── Wizard ────────────────────────────────────────────────────────────────────
 function Wizard({ mode, theme, onBack }) {
   const { activeLead, closeCopilot, addTouchEntry, addActivityEntry, updateIntelligence, settings } = useApp();
@@ -164,22 +206,23 @@ function Wizard({ mode, theme, onBack }) {
     window.open('https://claude.ai','_blank');
   };
 
-  const handleSave = (contentToSave) => {
-    const content = contentToSave || aiOutput || preview.body;
+  const handleSave = () => {
+    const rawContent = aiOutput || preview.body;
+    const parsed = parseClaudeOutput(mode, rawContent);
+    const content = parsed.body || parsed.raw;
+
     if (safeLead) {
       addTouchEntry(safeLead.id, {
-        type: mode.charAt(0).toUpperCase() + mode.slice(1),
+        type:    mode.charAt(0).toUpperCase() + mode.slice(1),
         channel: mode,
         content,
-        date: new Date().toLocaleDateString('en-US',{ month:'short', day:'numeric' }),
+        subject: parsed.subject,
+        date:    new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       });
-      addActivityEntry(safeLead.id, `${shortcut.label} generated via AI Copilot (${isGemini?'Gemini':'Claude'})`);
+      addActivityEntry(safeLead.id, `${shortcut.label} generated via AI Copilot (${isGemini ? 'Gemini' : 'Claude'})`);
 
       // Persist AI recommendation for situational analysis only.
       // Email / SMS / VM / LinkedIn / cadence outputs are ephemeral drafts.
-      // No parsing. No field extraction. The full reviewed text is the recommendation.
-      // insightSource removed per architecture review — always 'situational' in Phase 3,
-      // adds no information until a second recommendation source exists.
       if (mode === 'situational' && content) {
         updateIntelligence(safeLead.id, {
           aiRecommendation: content,
@@ -187,9 +230,21 @@ function Wizard({ mode, theme, onBack }) {
           lastAiUpdate:     new Date().toISOString(),
         });
       }
+
+      // Push generated content to Google Sheets
+      const generatedEmails = {};
+      if (mode === 'email')     generatedEmails.email1 = content;
+      if (mode === 'sms')       generatedEmails.sms1   = content;
+      if (mode === 'voicemail') generatedEmails.email2 = content;
+      if (mode === 'linkedin')  generatedEmails.email3 = content;
+
+      if (Object.keys(generatedEmails).length > 0) {
+        SheetsAdapter.pushGeneratedContent(safeLead, generatedEmails).catch(() => {});
+      }
     }
+
     setSaved(true);
-    setTimeout(()=>closeCopilot(), 1200);
+    setTimeout(() => closeCopilot(), 1200);
   };
 
   const displayContent = aiOutput || preview.body;
