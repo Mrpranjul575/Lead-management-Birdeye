@@ -13,6 +13,7 @@ import { STAGES_ALL, STAGE_STYLE } from '../constants/stages';
 import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity } from '../data/schema';
 import { SEQ_PLAN } from '../data/mockData';
 import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
+import { deriveSignals } from '../utils/intelligenceEngine';
 import NextBestStep from '../components/NextBestStep';
 import FollowUpModal from '../components/FollowUpModal';
 import RecordingUpload from '../components/RecordingUpload';
@@ -342,7 +343,8 @@ const TABS = [
 function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording, onTabChange }) {
   const { openCopilot } = useApp();
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
-  const intel = lead.intelligence || {};
+  const intel   = lead.intelligence || {};
+  const derived = deriveSignals(lead);
   const recentActivities = (lead.activities || []).slice(0, 4);
 
   return (
@@ -467,17 +469,41 @@ function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording
           </div>
         </div>
 
-        {/* Meeting probability */}
+        {/* Buying Intent */}
         <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'16px', display:'flex', flexDirection:'column', alignItems:'center' }}>
-          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:10, alignSelf:'flex-start' }}>Meeting Probability</div>
-          <ProbGauge pct={intel.meetingProbability || 20}/>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:10, alignSelf:'flex-start' }}>Buying Intent</div>
+          <ProbGauge pct={derived.buyingIntentScore}/>
         </div>
 
-        {/* Lead temperature */}
+        {/* Lead temperature — untouched, displays intel.leadTemperature as before */}
         <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'16px', display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
           <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', alignSelf:'flex-start' }}>Lead Temperature</div>
           <TempBadge temp={intel.leadTemperature || 'Cold'}/>
         </div>
+
+        {/* Urgency badge — derived signal */}
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'12px 14px' }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>Urgency</div>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:6, padding:'4px 10px', borderRadius:99, border:'1px solid', ...({
+            Critical:{ background:'rgba(239,68,68,0.12)',   borderColor:'rgba(239,68,68,0.3)',   color:'#F87171'  },
+            High:    { background:'rgba(245,158,11,0.12)',  borderColor:'rgba(245,158,11,0.3)',  color:'#FCD34D'  },
+            Medium:  { background:'rgba(56,189,248,0.12)',  borderColor:'rgba(56,189,248,0.3)',  color:'#38BDF8'  },
+            Low:     { background:'rgba(139,148,158,0.12)', borderColor:'rgba(139,148,158,0.3)', color:'#8B949E'  },
+          }[derived.urgency] || { background:'rgba(139,148,158,0.12)', borderColor:'rgba(139,148,158,0.3)', color:'#8B949E' }) }}>
+            <span style={{ fontSize:11, fontWeight:700 }}>{derived.urgency}</span>
+          </div>
+        </div>
+
+        {/* Risk badge — derived signal, only shown for Medium or High */}
+        {derived.riskLevel !== 'Low' && (
+          <div style={{ background:'var(--bg)', border:`1px solid ${derived.riskLevel==='High'?'rgba(239,68,68,0.3)':'rgba(245,158,11,0.3)'}`, borderRadius:12, padding:'12px 14px' }}>
+            <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>Risk Level</div>
+            <div style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'3px 9px', borderRadius:99, background:derived.riskLevel==='High'?'rgba(239,68,68,0.12)':'rgba(245,158,11,0.12)', border:`1px solid ${derived.riskLevel==='High'?'rgba(239,68,68,0.3)':'rgba(245,158,11,0.3)'}` }}>
+              <span style={{ fontSize:10 }}>⚠</span>
+              <span style={{ fontSize:11, fontWeight:700, color:derived.riskLevel==='High'?'#F87171':'#FCD34D' }}>{derived.riskLevel}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Next Best Steps — full card */}
