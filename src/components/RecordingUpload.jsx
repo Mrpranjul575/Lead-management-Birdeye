@@ -82,6 +82,16 @@ export default function RecordingUpload({ lead, onClose }) {
     if (intel) {
       const existing = lead.intelligence || {};
       const merge = (a, b) => [...new Set([...(a||[]), ...(b||[])])].filter(Boolean);
+      // Phase 7A Fix 1: actionItems extracted from transcript are joined into
+      // nextBestAction using semicolons to avoid information loss while
+      // preserving the existing single-string schema field.
+      // Priority: actionItems[] (most specific) → intel.nextBestAction (AI field)
+      // → existing.nextBestAction (previously stored value)
+      const resolvedNextBestAction =
+        intel.actionItems?.length
+          ? intel.actionItems.join('; ')
+          : intel.nextBestAction || existing.nextBestAction;
+
       updateIntelligence(lead.id, {
         summary:           intel.summary  || existing.summary,
         painPoints:        merge(existing.painPoints,    intel.painPoints),
@@ -90,10 +100,11 @@ export default function RecordingUpload({ lead, onClose }) {
         buyingSignals:     merge(existing.buyingSignals, intel.buyingSignals),
         decisionMakers:    merge(existing.decisionMakers,intel.decisionMakers),
         lastConversation:  intel.summary || existing.lastConversation,
-        nextBestAction:    intel.nextBestAction || existing.nextBestAction,
+        nextBestAction:    resolvedNextBestAction,
       });
     }
-    if (intel?.nextBestAction) updateLead(lead.id, { nextAction: intel.nextBestAction });
+    // Sync nextAction on the lead root so WorkQueue / NextBestStep see it immediately
+    if (resolvedNextBestAction) updateLead(lead.id, { nextAction: resolvedNextBestAction });
 
     setSaved(true);
     setTimeout(onClose, 1200);

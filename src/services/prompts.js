@@ -5,19 +5,88 @@
  *   - lead.aeNotes (full context: competitor, keyword, GMB, Salesloft, rep gap, AI/SEO reports)
  *   - lead.intent
  *   - lead.stage
- *   - lead.touchLog (previous touches — never repeat)
+ *   - lead.touchLog + lead.activities[] (previous touches — never repeat)
  *   - lead.competitor
  *   - lead.keyword
  */
+
+// ─── Phase 7A Fix 3: Unified touch history builder ───────────────────────────
+// Merges legacy touchLog (flat format) and modern activities[] (v4 format) into
+// a single de-duplicated, chronologically sorted list for prompt context.
+//
+// touchLog shape : { id, channel, content, date ('5/27' string), type }
+// activities shape: { activityId, timestamp (ISO), type, summary, details.content, source }
+//
+// Dedupe key: normalised type + date/timestamp prefix + content prefix (first 80 chars).
+// This eliminates duplicates produced by addTouchEntry()'s dual-write behaviour
+// without relying on internal IDs (which differ between the two arrays).
+//
+// Sort: descending by resolved timestamp so the most recent touch appears first.
+// touchLog date strings ('5/27') are not reliably parseable as full ISO timestamps;
+// they are treated as having epoch 0 for sort purposes, placing them after all
+// activities[] entries that carry real ISO timestamps. This is intentional — the
+// activities[] array is the authoritative modern record; legacy entries act as
+// a fallback for leads that predate the v4 migration.
+function buildTouchHistory(lead) {
+  const DISPLAY_TYPES = new Set([
+    'Email', 'SMS', 'Call', 'Voicemail', 'LinkedIn',
+    'Meeting', 'Transcript', 'Note', 'Follow Up',
+  ]);
+
+  // ── Normalise touchLog entries ──
+  const fromTouchLog = (lead.touchLog || []).map(t => ({
+    type:      t.type || t.channel || 'Email',
+    date:      t.date || '',
+    content:   t.content || '',
+    sortKey:   0, // legacy — no reliable full timestamp
+    source:    'touchLog',
+  }));
+
+  // ── Normalise activities[] entries ──
+  // Only include SDR-facing outreach/conversation types for prompt context.
+  // Exclude system events (Cadence Update, Status Change, Import, AI Generation)
+  // which add noise without helping the AI understand the relationship history.
+  const fromActivities = (lead.activities || [])
+    .filter(a => DISPLAY_TYPES.has(a.type))
+    .map(a => ({
+      type:    a.type,
+      date:    a.timestamp || '',
+      content: a.details?.content || a.summary || '',
+      sortKey: a.timestamp ? new Date(a.timestamp).getTime() : 0,
+      source:  'activities',
+    }));
+
+  // ── Merge and deduplicate ──
+  // Dedupe key: lowercase type + first 8 chars of date + first 80 chars of content.
+  // Coarse enough to catch dual-write duplicates, precise enough not to collapse
+  // genuinely distinct touches of the same type sent on the same day.
+  const seen = new Set();
+  const merged = [...fromActivities, ...fromTouchLog].filter(entry => {
+    const key = [
+      entry.type.toLowerCase(),
+      entry.date.slice(0, 8),
+      entry.content.slice(0, 80).toLowerCase().replace(/\s+/g, ' ').trim(),
+    ].join('|');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  // ── Sort descending by resolved timestamp (most recent first) ──
+  merged.sort((a, b) => b.sortKey - a.sortKey);
+
+  return merged;
+}
 
 // ─── Shared context builder ──────────────────────────────────────────────────
 export function buildLeadContext(lead) {
   if (!lead) return 'No lead selected. Open a lead first.';
 
-  const touchLog    = lead.touchLog    || [];
-  const prevTouches = touchLog.length
-    ? touchLog.map((t, i) =>
-        `  ${i + 1}. [${t.type || t.channel}] ${t.date || ''}: ${t.content?.slice(0, 120)}…`
+  // Phase 7A Fix 3: use merged touch history instead of touchLog-only
+  const allTouches  = buildTouchHistory(lead);
+  const prevTouches = allTouches.length
+    ? allTouches.map((t, i) =>
+        `  ${i + 1}. [${t.type}] ${t.date ? t.date.slice(0, 10) : ''}: ${t.content.slice(0, 120)}${t.content.length > 120 ? '…' : ''}`
       ).join('\n')
     : '  None — this is the FIRST touch. Make a strong first impression.';
 
@@ -56,8 +125,10 @@ export function buildLeadContext(lead) {
     intel.decisionMakers?.length
       ? `Decision Makers: ${intel.decisionMakers.join(', ')}`
       : null,
-    intel.suggestedNextAction
-      ? `Recommended Next Action: ${intel.suggestedNextAction}`
+    // Phase 7A Fix 2: corrected field name — schema defines nextBestAction,
+    // not suggestedNextAction. This line was silently dead since schema creation.
+    intel.nextBestAction
+      ? `Recommended Next Action: ${intel.nextBestAction}`
       : null,
   ].filter(Boolean).join('\n');
 
@@ -105,7 +176,9 @@ BIRDEYE VALUE PROPS (use sparingly, pick the one most relevant):
 export function buildEmailPrompt(lead) {
   if (!lead) return 'No lead selected. Open a lead first.';
   const ctx = buildLeadContext(lead);
-  const touchCount = (lead.touchLog || []).filter(t => t.type === 'Email').length;
+  // Phase 7A Fix 3: count email touches from merged history (touchLog + activities[])
+  // so angle guidance reflects the true number of emails sent, not just legacy entries.
+  const touchCount = buildTouchHistory(lead).filter(t => t.type === 'Email').length;
 
   const angleGuidance = touchCount === 0
     ? `ANGLE: This is the FIRST email. Lead with their specific pain — ${lead.intent}. Reference ${lead.competitor ? `their competitor (${lead.competitor})` : 'their AI visibility gap'}. DO NOT mention Birdeye by name until the 3rd sentence minimum.`
