@@ -1377,8 +1377,10 @@ function CadenceTab({ lead }) {
   const dayDone      = isDayComplete(lead);
   const cadDone      = isCadenceComplete(lead);
 
-  // All SEQ_PLAN steps up to totalDays, sorted by day
-  const stepsInCadence = SEQ_PLAN.filter(s => s.day <= totalDays).sort((a,b) => a.day - b.day);
+  // Use the cadence steps assigned to this lead, falling back to SEQ_PLAN for
+  // leads that pre-date cadence assignment or are using the default sequence.
+  const activePlan    = (lead.cadenceSteps?.length ? lead.cadenceSteps : SEQ_PLAN);
+  const stepsInCadence = activePlan.filter(s => s.day <= totalDays).sort((a, b) => a.day - b.day);
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:14 }}>

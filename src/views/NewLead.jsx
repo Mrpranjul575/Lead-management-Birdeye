@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Zap, CheckCircle2, Plus, Send, Brain, ChevronRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { SheetsAdapter } from '../services/sheetsAdapter';
 
 const INTENTS    = ['AI Visibility','Review Growth','Listings','Competitor Dominance','Local SEO'];
 const INDUSTRIES = ['Dental','Med Spa','Chiropractic','Wellness','Fitness','Dermatology','Healthcare','Automotive','Legal','Real Estate','Other'];
@@ -228,8 +229,11 @@ export default function NewLead() {
   };
 
   const handlePushSheet = () => {
+    if (!editing || !parsed) return;
+    const leadData = { ...editing, aeNotes, reviews: parseInt(editing.reviews) || 0 };
+    SheetsAdapter.pushLead(leadData).catch(() => {});
     setPushedSheet(true);
-    setTimeout(()=>setPushedSheet(false), 2500);
+    setTimeout(() => setPushedSheet(false), 2500);
   };
 
   const inpStyle = {

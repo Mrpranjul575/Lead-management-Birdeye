@@ -237,6 +237,7 @@ function Wizard({ mode, theme, onBack }) {
       if (mode === 'sms')       generatedEmails.sms1   = content;
       if (mode === 'voicemail') generatedEmails.email2 = content;
       if (mode === 'linkedin')  generatedEmails.email3 = content;
+      if (mode === 'notes')     generatedEmails.email1 = content;
 
       if (Object.keys(generatedEmails).length > 0) {
         SheetsAdapter.pushGeneratedContent(safeLead, generatedEmails).catch(() => {});

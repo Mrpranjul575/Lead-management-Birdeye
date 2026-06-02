@@ -9,12 +9,9 @@ const LABELS = {
   settings:'Settings', newlead:'New Lead',
 };
 
-const NOTIFICATIONS = [
-  { id:1, text:'SmileCraft Dental replied to your email', time:'2m ago',  dot:'#10B981', unread:true  },
-  { id:2, text:'3 new hot leads enriched by AI',         time:'14m ago', dot:'#5B3FC8', unread:true  },
-  { id:3, text:'Follow up due: Glow Med Spa',            time:'1h ago',  dot:'#F59E0B', unread:true  },
-  { id:4, text:'Demo booked: Austin Smile Studio',       time:'3h ago',  dot:'#10B981', unread:false },
-];
+// Notifications are activity-driven — no hardcoded data.
+// Future: derive from leads[].activities where type requires SDR attention.
+const NOTIFICATIONS = [];
 
 export default function TopBar({ sidebarWidth=240 }) {
   const { setClipSearch, theme, view, search, setSearch, activeLead, leads } = useApp();
@@ -133,28 +130,33 @@ export default function TopBar({ sidebarWidth=240 }) {
               }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'12px 14px', borderBottom:`1px solid ${B1}` }}>
                   <span style={{ fontSize:13, fontWeight:600, color:T1 }}>Notifications</span>
-                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <span style={{ fontSize:10, color:'#7C5CE8', cursor:'pointer', fontWeight:500 }}>Mark all read</span>
-                    <button onClick={()=>setNotifOpen(false)} style={{ padding:2, border:'none', background:'transparent', cursor:'pointer', color:T2 }}><X size={13}/></button>
-                  </div>
+                  <button onClick={()=>setNotifOpen(false)} style={{ padding:2, border:'none', background:'transparent', cursor:'pointer', color:T2 }}><X size={13}/></button>
                 </div>
-                {NOTIFICATIONS.map(n=>(
-                  <div key={n.id} style={{
-                    display:'flex', alignItems:'flex-start', gap:10, padding:'10px 14px',
-                    borderBottom:`1px solid ${dark?'#21262D':'#F3F4F5'}`,
-                    background:n.unread?(dark?'rgba(91,63,200,0.06)':'rgba(91,63,200,0.03)'):'transparent',
-                    cursor:'pointer', transition:'background 0.12s',
-                  }}
-                    onMouseEnter={e=>e.currentTarget.style.background=dark?'#21262D':'#F9FAFB'}
-                    onMouseLeave={e=>e.currentTarget.style.background=n.unread?(dark?'rgba(91,63,200,0.06)':'rgba(91,63,200,0.03)'):'transparent'}>
-                    <div style={{ width:7, height:7, borderRadius:'50%', background:n.dot, flexShrink:0, marginTop:5 }}/>
-                    <div style={{ flex:1 }}>
-                      <p style={{ fontSize:12, color:T1, lineHeight:1.5, margin:0 }}>{n.text}</p>
-                      <span style={{ fontSize:10, color:T2 }}>{n.time}</span>
-                    </div>
-                    {n.unread && <div style={{ width:6, height:6, borderRadius:'50%', background:'#5B3FC8', flexShrink:0, marginTop:6 }}/>}
+                {NOTIFICATIONS.length === 0 ? (
+                  <div style={{ padding:'28px 14px', textAlign:'center' }}>
+                    <div style={{ fontSize:22, marginBottom:8 }}>🔔</div>
+                    <div style={{ fontSize:13, fontWeight:600, color:T1, marginBottom:4 }}>No notifications yet</div>
+                    <div style={{ fontSize:11, color:T2, lineHeight:1.5 }}>Activity alerts will appear here as you work through your leads.</div>
                   </div>
-                ))}
+                ) : (
+                  NOTIFICATIONS.map(n=>(
+                    <div key={n.id} style={{
+                      display:'flex', alignItems:'flex-start', gap:10, padding:'10px 14px',
+                      borderBottom:`1px solid ${dark?'#21262D':'#F3F4F5'}`,
+                      background:n.unread?(dark?'rgba(91,63,200,0.06)':'rgba(91,63,200,0.03)'):'transparent',
+                      cursor:'pointer', transition:'background 0.12s',
+                    }}
+                      onMouseEnter={e=>e.currentTarget.style.background=dark?'#21262D':'#F9FAFB'}
+                      onMouseLeave={e=>e.currentTarget.style.background=n.unread?(dark?'rgba(91,63,200,0.06)':'rgba(91,63,200,0.03)'):'transparent'}>
+                      <div style={{ width:7, height:7, borderRadius:'50%', background:n.dot, flexShrink:0, marginTop:5 }}/>
+                      <div style={{ flex:1 }}>
+                        <p style={{ fontSize:12, color:T1, lineHeight:1.5, margin:0 }}>{n.text}</p>
+                        <span style={{ fontSize:10, color:T2 }}>{n.time}</span>
+                      </div>
+                      {n.unread && <div style={{ width:6, height:6, borderRadius:'50%', background:'#5B3FC8', flexShrink:0, marginTop:6 }}/>}
+                    </div>
+                  ))
+                )}
               </div>
             )}
           </div>

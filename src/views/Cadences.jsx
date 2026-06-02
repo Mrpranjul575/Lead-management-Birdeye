@@ -268,6 +268,8 @@ export default function Cadences() {
       cadenceName:  cad.name,
       cadenceDay:   0,
       cadenceTotal: cad.steps?.length || 7,
+      // Store the actual steps so CadenceTab executes this cadence, not SEQ_PLAN
+      cadenceSteps: cad.steps || [],
     });
     addActivity(leadId, 'Cadence Update', 'Cadence applied: ' + cad.name, { source: 'manual' });
     setApplyDone(cad.id);

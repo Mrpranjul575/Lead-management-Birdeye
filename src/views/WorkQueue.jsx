@@ -176,7 +176,7 @@ export default function WorkQueue() {
           <p style={{ fontSize:12, color:T2, marginTop:3 }}>Your action center for today</p>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <button className="btn-ghost">May 30, 2025 <ChevronDown size={11}/></button>
+          <button className="btn-ghost">{new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})} <ChevronDown size={11}/></button>
           <button className="btn-ghost">All Queues <ChevronDown size={11}/></button>
           <button className="btn-ghost"><SlidersHorizontal size={11}/> Customize</button>
         </div>

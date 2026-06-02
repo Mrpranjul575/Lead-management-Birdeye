@@ -575,6 +575,29 @@ VERSION B: LinkedIn DM (max 300 chars)
 Label: === VERSION A (Email) === / === VERSION B (LinkedIn) ===`;
 }
 
+// ─── Call Notes intelligence extraction prompt ────────────────────────────────
+// Consumes getPromptOverride('notes') so the Prompt Builder "Call Notes AI"
+// action is live. Falls back to the structured extraction default.
+export function buildNotesPrompt(lead) {
+  if (!lead) return 'No lead selected.';
+  const override = getPromptOverride('notes');
+  if (override) return interpolatePrompt(override, lead);
+
+  return `Extract intelligence from these call notes for ${lead.business || 'this lead'}.
+
+Notes: [paste call notes here]
+
+Extract and return JSON with:
+- summary (2 sentences)
+- painPoints (array of strings)
+- objections (array of strings)
+- competitors (array of strings)
+- buyingSignals (array of strings)
+- nextBestAction (string)
+- leadTemperature (Cold / Warm / Hot)
+- sentiment (Positive / Neutral / Negative)`;
+}
+
 // ─── Normalize mode to lowercase for all internal use ─────────────────────────
 export function normalizeMode(mode) {
   if (!mode) return 'email';
@@ -591,6 +614,7 @@ export function buildPrompt(mode, lead) {
     case 'linkedin':   return buildLinkedInPrompt(lead);
     case 'situational':return buildSituationalPrompt(lead);
     case 'cadence':    return buildCadencePrompt(lead);
+    case 'notes':      return buildNotesPrompt(lead);
     default:           return buildEmailPrompt(lead);
   }
 }

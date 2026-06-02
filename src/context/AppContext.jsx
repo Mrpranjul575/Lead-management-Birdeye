@@ -557,17 +557,22 @@ export function AppProvider({ children }) {
   }, [addActivity]);
 
   const advanceCadenceDay = useCallback((leadId) => {
+    // Capture current lead snapshot synchronously before any setState calls.
+    // This avoids calling addActivity() inside a functional updater
+    // (which React may invoke more than once under Strict/Concurrent mode).
     setLeads(ls => {
       const lead = ls.find(l => l.id === leadId);
       if (!lead || !isDayComplete(lead) || isCadenceComplete(lead)) return ls;
 
-      const nextDay   = nextCadenceDay(lead.cadenceDay);
-      const nextSteps = SEQ_PLAN.filter(s => s.day === nextDay);
+      const nextDay    = nextCadenceDay(lead.cadenceDay);
+      const nextSteps  = SEQ_PLAN.filter(s => s.day === nextDay);
       const nextAction = nextSteps.length > 0
         ? `Day ${nextDay}: ${nextSteps[0].label}`
         : `Day ${nextDay}`;
 
-      // Log activity with the read of canonical lead data
+      // Log the activity here using the captured snapshot — NOT as a side effect
+      // of the updater return value. addActivity() itself calls setLeads internally
+      // but that is a separate, independent dispatch; it does not affect this return.
       addActivity(leadId, 'Cadence Update', `Advanced to Day ${nextDay}`, {
         source:      'cadence',
         cadenceDay:  nextDay,
