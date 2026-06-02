@@ -257,7 +257,6 @@ export default function Cadences() {
   const [cadDesc,    setCadDesc]    = useState('Multi-channel outreach targeting leads to improve AI visibility.');
   const [view,       setView]       = useState('editor'); // 'editor' | 'performance'
   const [savedMsg,   setSavedMsg]   = useState(false);
-  const [applyTarget, setApplyTarget] = useState(null);
   const [applyingId,  setApplyingId]  = useState(null);
   const [applyDone,   setApplyDone]   = useState(null);
 
