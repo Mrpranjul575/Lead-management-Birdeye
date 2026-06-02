@@ -31,15 +31,21 @@ const INTENT = {
 
 
 /* ─── Stat card ─── */
-function StatCard({ label, value, sub, icon:Icon, ic, ib }) {
+function StatCard({ label, value, sub, icon:Icon, ic, ib, onFilter, active, informational }) {
   return (
-    <div style={{
-      background:'var(--s1)', border:'1px solid var(--b1)', borderRadius:12,
-      padding:'14px 16px', cursor:'pointer', transition:'border-color 0.15s',
-      display:'flex', flexDirection:'column', gap:0,
-    }}
-      onMouseEnter={e => e.currentTarget.style.borderColor='rgba(91,63,200,0.5)'}
-      onMouseLeave={e => e.currentTarget.style.borderColor='var(--b1)'}>
+    <div
+      onClick={informational ? undefined : onFilter}
+      style={{
+        background:'var(--s1)',
+        border: active ? `1px solid ${ic}` : '1px solid var(--b1)',
+        borderRadius:12, padding:'14px 16px',
+        cursor: informational ? 'default' : 'pointer',
+        transition:'border-color 0.15s',
+        display:'flex', flexDirection:'column', gap:0,
+        opacity: informational ? 0.75 : 1,
+      }}
+      onMouseEnter={e => { if (!informational && !active) e.currentTarget.style.borderColor=ic; }}
+      onMouseLeave={e => { if (!informational && !active) e.currentTarget.style.borderColor='var(--b1)'; }}>
       <div style={{ width:30, height:30, borderRadius:8, background:ib,
         display:'flex', alignItems:'center', justifyContent:'center', marginBottom:10 }}>
         <Icon size={14} color={ic}/>
@@ -47,7 +53,11 @@ function StatCard({ label, value, sub, icon:Icon, ic, ib }) {
       <div style={{ fontSize:28, fontWeight:700, color:'var(--t1)', lineHeight:1 }}>{value}</div>
       <div style={{ fontSize:11, fontWeight:600, color:ic, marginTop:5 }}>{label}</div>
       <div style={{ fontSize:10, color:'var(--t2)', marginTop:2 }}>{sub}</div>
-      <div style={{ fontSize:10, color:'var(--p-glow)', marginTop:10 }}>View leads →</div>
+      {!informational && (
+        <div style={{ fontSize:10, color: active ? ic : 'var(--p-glow)', marginTop:10 }}>
+          {active ? '● Filtered' : 'View leads →'}
+        </div>
+      )}
     </div>
   );
 }
@@ -66,12 +76,12 @@ export default function WorkQueue() {
 
   /* ── Stat card definitions (derived) ── */
   const STATS = useMemo(() => [
-    { label:'Hot Leads',       value:hotCount,        sub:'High priority',  icon:Flame,         ic:'#EF4444', ib:'rgba(239,68,68,0.12)'    },
-    { label:'Follow Ups Due',  value:followUpCount,   sub:'Due today',      icon:RefreshCw,     ic:'#F59E0B', ib:'rgba(245,158,11,0.12)'   },
-    { label:'Demos to Book',   value:demoCount,       sub:'Ready to book',  icon:CalendarCheck, ic:'#7C5CE8', ib:'rgba(91,63,200,0.15)'    },
-    { label:'No Response',     value:noResponseCount, sub:'Awaiting reply', icon:MessageSquare, ic:'#38BDF8', ib:'rgba(56,189,248,0.12)'   },
-    { label:'Re-engage',       value:reEngageCount,   sub:'Cold > 7 days',  icon:RotateCcw,     ic:'#F472B6', ib:'rgba(236,72,153,0.12)'   },
-    { label:'Converted',       value:convertedCount,  sub:'All time',       icon:CheckCircle2,  ic:'#10B981', ib:'rgba(16,185,129,0.12)'   },
+    { label:'Hot Leads',       value:hotCount,        sub:'High priority',  icon:Flame,         ic:'#EF4444', ib:'rgba(239,68,68,0.12)',   filterId:'hot'         },
+    { label:'Follow Ups Due',  value:followUpCount,   sub:'Due today',      icon:RefreshCw,     ic:'#F59E0B', ib:'rgba(245,158,11,0.12)',  filterId:'followup'    },
+    { label:'Demos to Book',   value:demoCount,       sub:'Ready to book',  icon:CalendarCheck, ic:'#7C5CE8', ib:'rgba(91,63,200,0.15)',   filterId:'demos'       },
+    { label:'No Response',     value:noResponseCount, sub:'Awaiting reply', icon:MessageSquare, ic:'#38BDF8', ib:'rgba(56,189,248,0.12)',  filterId:'noresponse'  },
+    { label:'Re-engage',       value:reEngageCount,   sub:'Cold > 7 days',  icon:RotateCcw,     ic:'#F472B6', ib:'rgba(236,72,153,0.12)',  filterId:'reengage'    },
+    { label:'Converted',       value:convertedCount,  sub:'All time',       icon:CheckCircle2,  ic:'#10B981', ib:'rgba(16,185,129,0.12)',  filterId:null          },
   ], [hotCount, followUpCount, demoCount, noResponseCount, reEngageCount, convertedCount]);
 
   /* ── Filter tab definitions (derived) ── */
@@ -125,7 +135,15 @@ export default function WorkQueue() {
 
       {/* ── Stat cards ── */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:12 }}>
-        {STATS.map(s => <StatCard key={s.label} {...s}/>)}
+        {STATS.map(s => (
+          <StatCard
+            key={s.label}
+            {...s}
+            active={s.filterId !== null && activeFilter === s.filterId}
+            informational={s.filterId === null}
+            onFilter={s.filterId ? () => setActiveFilter(s.filterId) : undefined}
+          />
+        ))}
       </div>
 
       {/* ── Lead table ── */}
