@@ -3,7 +3,7 @@ import { useApp } from "../context/AppContext";
 import { Upload,
   LayoutDashboard, CheckSquare, Users, Flame, RefreshCw, CalendarCheck,
   GitBranch, BarChart2, Settings, Plus, Link2, Copy,
-  ChevronDown, Sun, Moon, PanelLeftClose, PanelLeftOpen, Brain, Sparkles
+  ChevronDown, Sun, Moon, PanelLeftClose, PanelLeftOpen, Brain, Sparkles, Code
 } from 'lucide-react';
 
 const NAV = [
@@ -17,8 +17,9 @@ const NAV = [
   { id:'pipeline',   label:'Pipeline',    icon:GitBranch,       badge:null },
   { id:'reports',    label:'Reports',     icon:BarChart2,       badge:null },
   { id:'cadences',   label:'Cadences',    icon:GitBranch,       badge:null },
-  { id:'memory',     label:'AI Memory',   icon:Brain,           badge:null },
-  { id:'settings',   label:'Settings',    icon:Settings,        badge:null },
+  { id:'memory',        label:'AI Memory',      icon:Brain,           badge:null },
+  { id:'promptbuilder', label:'Prompt Builder',  icon:Code,            badge:null },
+  { id:'settings',      label:'Settings',        icon:Settings,        badge:null },
 ];
 
 export default function Sidebar() {

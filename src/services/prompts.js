@@ -12,6 +12,35 @@
 
 import { isConfirmed, isPromptEligible } from '../data/schema.js';
 
+// ─── Prompt Builder override system ──────────────────────────────────────────
+// Read priority: birdeye_prompt_library → birdeye_prompt_overrides → DEFAULT
+// Called at the top of every buildXPrompt function before the default template.
+function getPromptOverride(mode) {
+  try {
+    const lib = JSON.parse(localStorage.getItem('birdeye_prompt_library') || '{}');
+    if (lib[mode]?.promptText) return lib[mode].promptText;
+    const ov = JSON.parse(localStorage.getItem('birdeye_prompt_overrides') || '{}');
+    if (ov[mode]?.promptText) return ov[mode].promptText;
+  } catch {}
+  return null;
+}
+
+function interpolatePrompt(template, lead) {
+  if (!template || !lead) return template;
+  return template
+    .replace(/\{\{first_name\}\}/g,    lead.contact   || '')
+    .replace(/\{\{biz_name\}\}/g,      lead.business  || '')
+    .replace(/\{\{industry\}\}/g,      lead.industry  || '')
+    .replace(/\{\{city\}\}/g,          lead.city      || '')
+    .replace(/\{\{ai_score\}\}/g,      String(lead.aiScore   || ''))
+    .replace(/\{\{reviews\}\}/g,       String(lead.reviews   || ''))
+    .replace(/\{\{ai_visibility\}\}/g, String(lead.aiVisibility || ''))
+    .replace(/\{\{competitor_1\}\}/g,  lead.competitor || lead.intelligence?.competitors?.[0] || '')
+    .replace(/\{\{pain_point_1\}\}/g,  lead.intelligence?.painPoints?.[0]  || '')
+    .replace(/\{\{last_touch\}\}/g,    lead.lastTouch  || '')
+    .replace(/\{\{objection_1\}\}/g,   lead.intelligence?.objections?.[0]  || '');
+}
+
 // ─── Phase 7A Fix 3: Unified touch history builder ───────────────────────────
 // Merges legacy touchLog (flat format) and modern activities[] (v4 format) into
 // a single de-duplicated, chronologically sorted list for prompt context.
@@ -226,6 +255,8 @@ BIRDEYE VALUE PROPS (use sparingly, pick the one most relevant):
 // ─── Email prompt ─────────────────────────────────────────────────────────────
 export function buildEmailPrompt(lead) {
   if (!lead) return 'No lead selected. Open a lead first.';
+  const override = getPromptOverride('email');
+  if (override) return interpolatePrompt(override, lead);
   const ctx = buildLeadContext(lead);
   // Phase 7A Fix 3: count email touches from merged history (touchLog + activities[])
   // so angle guidance reflects the true number of emails sent, not just legacy entries.
@@ -275,6 +306,8 @@ Subject: [subject line]
 // ─── SMS prompt ───────────────────────────────────────────────────────────────
 export function buildSMSPrompt(lead) {
   if (!lead) return 'No lead selected. Open a lead first.';
+  const override = getPromptOverride('sms');
+  if (override) return interpolatePrompt(override, lead);
   const ctx = buildLeadContext(lead);
   const firstName = lead.contact?.split(' ')[0] || lead.business?.split(' ')[0] || 'there';
 
@@ -309,6 +342,8 @@ Label each SMS exactly as:
 // ─── Voicemail prompt ─────────────────────────────────────────────────────────
 export function buildVoicemailPrompt(lead) {
   if (!lead) return 'No lead selected. Open a lead first.';
+  const override = getPromptOverride('voicemail');
+  if (override) return interpolatePrompt(override, lead);
   const ctx = buildLeadContext(lead);
 
   return `${PERSONA}
@@ -337,6 +372,8 @@ Then provide: WORD COUNT: X | ESTIMATED TIME: ~Xs`;
 // ─── LinkedIn prompt ──────────────────────────────────────────────────────────
 export function buildLinkedInPrompt(lead) {
   if (!lead) return 'No lead selected. Open a lead first.';
+  const override = getPromptOverride('linkedin');
+  if (override) return interpolatePrompt(override, lead);
   const ctx = buildLeadContext(lead);
 
   return `${PERSONA}
@@ -375,6 +412,8 @@ Label each message exactly as:
 // ─── AE Notes generator ───────────────────────────────────────────────────────
 export function buildAENotesPrompt(lead) {
   if (!lead) return 'No lead selected.';
+  const override = getPromptOverride('aeNotes');
+  if (override) return interpolatePrompt(override, lead);
   const competitors = lead.intelligence?.competitors || [];
   const c1 = competitors[0] || lead.competitor || '';
   const c2 = competitors[1] || '';
@@ -418,6 +457,8 @@ Output AE Notes only. Nothing else.`;
 // ─── Situational prompt ───────────────────────────────────────────────────────
 export function buildSituationalPrompt(lead) {
   if (!lead) return 'No lead selected. Open a lead first.';
+  const override = getPromptOverride('situational');
+  if (override) return interpolatePrompt(override, lead);
   const ctx = buildLeadContext(lead);
 
   return `${PERSONA}
@@ -449,6 +490,8 @@ Based on everything above, give me:
 // ─── Cadence builder prompt ───────────────────────────────────────────────────
 export function buildCadencePrompt(lead, cadenceName) {
   if (!lead) return 'No lead selected. Open a lead first.';
+  const override = getPromptOverride('cadence');
+  if (override) return interpolatePrompt(override, lead);
   const ctx = buildLeadContext(lead);
 
   return `${PERSONA}
@@ -506,6 +549,8 @@ Output the ${step.channel || 'Email'} only. Nothing else.`;
 // ─── Re-engage hook generator ─────────────────────────────────────────────────
 export function buildReEngagePrompt(lead, signal) {
   if (!lead) return 'No lead selected. Open a lead first.';
+  const override = getPromptOverride('reEngage');
+  if (override) return interpolatePrompt(override, lead);
   const ctx = buildLeadContext(lead);
 
   return `${PERSONA}
