@@ -18,7 +18,7 @@ import ActionCenter from '../components/ActionCenter';
 import NextBestStep from '../components/NextBestStep';
 import FollowUpModal from '../components/FollowUpModal';
 import RecordingUpload from '../components/RecordingUpload';
-import AccountKnowledgeTab, { countPendingAK } from '../components/AccountKnowledgeTab';
+import AccountKnowledgeTab, { countPendingAK, countConflicts } from '../components/AccountKnowledgeTab';
 
 /* ─── Shared score ring ─────────────────────────────── */
 function ScoreRing({ score, size=52 }) {
@@ -1522,15 +1522,18 @@ export default function LeadPage() {
         {TABS.map(({ id, label })=>{
           const active=tab===id;
           // Phase 7C-2D: account_knowledge badge shows pending AK fact count (amber)
+          // Phase 7D-A: badge also includes conflict count (⚡ indicator when conflicts exist)
           // activities / followups badges use existing blue pill style
-          const isAKTab = id === 'account_knowledge';
-          const akPending = isAKTab ? countPendingAK(lead.accountKnowledge) : 0;
+          const isAKTab   = id === 'account_knowledge';
+          const akPending  = isAKTab ? countPendingAK(lead.accountKnowledge) : 0;
+          const akConflict = isAKTab ? countConflicts(lead.accountKnowledge) : 0;
           const badge = id==='activities' ? (lead.activities||[]).length : id==='followups' ? (lead.followUps||[]).filter(f=>!f.done).length : 0;
           return (
             <button key={id} onClick={()=>setTab(id)} style={{ padding:'11px 14px', border:'none', background:'transparent', borderBottom:active?'2px solid var(--p)':'2px solid transparent', color:active?'var(--p-glow)':T2, fontSize:11, fontWeight:active?600:400, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap', transition:'color 0.12s', marginBottom:'-1px', display:'flex', alignItems:'center', gap:5 }}>
               {label}
               {badge>0 && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:99, background:'rgba(91,63,200,0.2)', color:'#7C5CE8' }}>{badge}</span>}
               {isAKTab && akPending>0 && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:99, background:'rgba(245,158,11,0.2)', color:'#F59E0B' }}>{akPending}</span>}
+              {isAKTab && akConflict>0 && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:99, background:'rgba(239,68,68,0.18)', color:'#F87171' }}>⚡{akConflict}</span>}
             </button>
           );
         })}

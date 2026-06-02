@@ -21,7 +21,7 @@
 
 import { CheckCircle2, X, AlertCircle, ShieldCheck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { isConfirmed } from '../data/schema';
+import { isConfirmed, hasConflict } from '../data/schema';
 
 // ── Field metadata ─────────────────────────────────────────────────────────────
 const FIELD_META = {
@@ -91,6 +91,19 @@ export function countPendingAK(ak) {
     .forEach(f => { n += (ak[f] || []).filter(i => i.reviewStatus === 'pending').length; });
   if (ak.budget?.reviewStatus          === 'pending') n++;
   if (ak.purchaseTimeline?.reviewStatus === 'pending') n++;
+  return n;
+}
+
+// ── Count all items with unresolved conflicts (Phase 7D-A) ───────────────────
+// Counts confirmed items that have conflictWith set across all fields.
+// Used by AccountKnowledgeTab badge and PrepareCallDrawer conflict indicator.
+export function countConflicts(ak) {
+  if (!ak) return 0;
+  let n = 0;
+  ['competitors', 'decisionMakers', 'currentTools', 'businessGoals', 'recurringObjections']
+    .forEach(f => { n += (ak[f] || []).filter(hasConflict).length; });
+  if (hasConflict(ak.budget))           n++;
+  if (hasConflict(ak.purchaseTimeline)) n++;
   return n;
 }
 

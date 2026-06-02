@@ -92,12 +92,29 @@ export const INTELLIGENCE_REJECTED_FIELDS = new Set([
  * purchaseTimeline.urgency: 'immediate' | 'this_quarter' | 'next_quarter' | 'exploring' | 'unknown'
  *
  * Phase 7C-1 — reviewStatus per sub-object:
- *   'pending'   — extracted by AI (source: transcript). Excluded from prompt context.
- *                 Awaiting SDR review.
- *   'confirmed' — accepted by SDR, authored by SDR, or migrated. Included in prompts.
- *   'dismissed' — rejected by SDR. Excluded from prompts.
- *   absent      — treated as 'confirmed' (backward compat for pre-7C items).
+ *   'pending'    — extracted by AI (source: transcript). Excluded from prompt context.
+ *                  Awaiting SDR review.
+ *   'confirmed'  — accepted by SDR, authored by SDR, or migrated. Included in prompts.
+ *   'dismissed'  — rejected by SDR. Excluded from prompts. Skipped in identity dedup.
+ *                  Re-extractable in future transcripts.
+ *   'superseded' — Phase 7D. Was true, now replaced by a newer confirmed fact.
+ *                  Excluded from prompts and active display. Retained for history.
+ *                  Skipped in identity dedup (same as dismissed).
+ *   absent       — treated as 'confirmed' (backward compat for pre-7C items).
  *   Use isConfirmed(item) — do NOT inline this check.
+ *
+ * Phase 7D — conflictWith per sub-object (optional field, absent by default):
+ *   When a new transcript extraction disagrees with a confirmed fact, the conflict
+ *   is stored as conflictWith on the confirmed entry rather than as a separate item.
+ *   The confirmed entry retains its reviewStatus: 'confirmed' and remains in prompts.
+ *   conflictWith: {
+ *     [extracted values — same shape as the parent sub-object's factual fields]
+ *     source: string,
+ *     sourceDate: ISO string,
+ *     extractedFrom: activityId | null,
+ *   } | null | undefined
+ *   Cleared by resolveConflict() (Phase 7D-B) when the SDR resolves the conflict.
+ *   Use hasConflict(item) to check — do NOT inline.
  *
  * Metadata fields (never injected into prompt context):
  *   lastExtractedFrom : activityId of the conversation that last contributed
@@ -121,23 +138,113 @@ export function createAccountKnowledge(overrides = {}) {
 }
 
 /**
- * isConfirmed — single authoritative check for whether an accountKnowledge
- * sub-object should be treated as trusted (visible in prompts, shown as
- * confirmed in UI).
+ * isConfirmed — UI-layer trust check for accountKnowledge sub-objects.
+ *
+ * Answers: "Has an SDR accepted this fact?"
+ * Used by: AccountKnowledgeTab display, PrepareCallDrawer, OverviewTab, ReEngage.
+ *
+ * A confirmed item with conflictWith set is still confirmed — the SDR accepted
+ * the fact, and a newer contested extraction exists. The conflict is shown in UI
+ * but the fact remains visible as confirmed context.
+ *
+ * NOTE: This is NOT the prompt-injection filter. Use isPromptEligible() in
+ * buildLeadContext(). The two functions answer different questions:
+ *   isConfirmed()      → "Is this a trusted fact for display?"
+ *   isPromptEligible() → "Should this fact enter AI prompt context right now?"
  *
  * Rules:
  *   reviewStatus === 'confirmed'  → true
  *   reviewStatus absent/undefined → true  (backward compat: pre-7C items)
  *   reviewStatus === 'pending'    → false (AI-extracted, awaiting SDR review)
  *   reviewStatus === 'dismissed'  → false (SDR-rejected)
+ *   reviewStatus === 'superseded' → false (Phase 7D: replaced by newer confirmed fact)
  *   item is null/undefined        → false
  *
- * Use this helper everywhere. Do NOT inline the condition in callers.
- * Referenced by: buildLeadContext() (prompts.js), AccountKnowledgeTab (Phase 7C-2).
+ * Do NOT inline this check in callers.
  */
 export function isConfirmed(item) {
   if (!item) return false;
-  return item.reviewStatus !== 'pending' && item.reviewStatus !== 'dismissed';
+  return item.reviewStatus !== 'pending'
+      && item.reviewStatus !== 'dismissed'
+      && item.reviewStatus !== 'superseded';
+}
+
+/**
+ * hasConflict — returns true if an accountKnowledge sub-object has a pending
+ * conflict stored in conflictWith.
+ *
+ * A conflict means: the item is confirmed, but a new transcript extraction
+ * disagreed with its values. conflictWith holds the extraction's values for
+ * SDR review. resolveConflict() (Phase 7D-B) clears conflictWith on resolution.
+ *
+ * Do NOT inline this check in callers.
+ */
+export function hasConflict(item) {
+  if (!item) return false;
+  return item.conflictWith != null;
+}
+
+/**
+ * isPromptEligible — prompt-injection filter for accountKnowledge sub-objects.
+ *
+ * Answers: "Should this fact enter AI prompt context right now?"
+ * Used by: buildLeadContext() ONLY. Do NOT use in UI display code.
+ *
+ * A fact is prompt-eligible when it is confirmed AND has no active conflict.
+ * When conflictWith is set, the fact is contested — the AI should not receive
+ * a fact that the SDR has not yet resolved as definitely correct.
+ *
+ * This preserves the Phase 7C trust boundary:
+ *   pending     → excluded (not yet reviewed)
+ *   dismissed   → excluded (rejected)
+ *   superseded  → excluded (replaced)
+ *   conflict    → excluded (contested, awaiting resolution)
+ *   confirmed + no conflict → included (fully trusted)
+ *
+ * = isConfirmed(item) && !hasConflict(item)
+ *
+ * Do NOT inline this check in callers. Do NOT use in UI — use isConfirmed() there.
+ */
+export function isPromptEligible(item) {
+  return isConfirmed(item) && !hasConflict(item);
+}
+
+/**
+ * hasMeaningfulDifference — returns true when a pending extraction carries
+ * substantively different values from the existing confirmed entry.
+ *
+ * Used by mergeAccountKnowledge() to decide whether to set conflictWith.
+ * Coarse differences (whitespace, capitalization, 'unknown' vs absent) do NOT
+ * constitute a conflict. Only substantive value changes trigger conflict storage.
+ *
+ * Pure function. Not exported — internal to mergeAccountKnowledge().
+ */
+function hasMeaningfulDifference(field, existing, incoming) {
+  const norm = v => (v || '').toString().toLowerCase().trim().replace(/\s+/g, ' ');
+  const different = (a, b) => norm(a) !== norm(b) && norm(b) !== '' && norm(b) !== 'unknown';
+
+  switch (field) {
+    case 'competitors':
+      return different(existing.strength, incoming.strength)
+          || different(existing.context,  incoming.context);
+    case 'decisionMakers':
+      return different(existing.role,      incoming.role)
+          || different(existing.authority, incoming.authority);
+    case 'currentTools':
+      return different(existing.category, incoming.category);
+    case 'businessGoals':
+      return false; // goals are immutable once confirmed; no sub-values to conflict
+    case 'recurringObjections':
+      return false; // occurrences tracked separately; resolution state not conflictable
+    case 'budget':
+      return different(existing.status, incoming.status)
+          || different(existing.amount, incoming.amount);
+    case 'purchaseTimeline':
+      return different(existing.urgency,    incoming.urgency)
+          || different(existing.targetDate, incoming.targetDate);
+    default:
+      return false;
+  }
 }
 
 /**
@@ -152,16 +259,20 @@ export function isConfirmed(item) {
  *
  * Phase 7C-2A — behavioral protections:
  *   1. CONFIRMED PROTECTION (arrays): a confirmed existing entry is never downgraded
- *      or overwritten by a pending patch item. Pending patches on confirmed entries
- *      are silently ignored — the confirmed SDR decision stands.
- *   2. DISMISSED SKIP: dismissed entries are excluded from identity-key matching.
- *      A dismissed name can be re-extracted as a new pending item in a future
- *      transcript. Dismissal applies to that extraction event, not the name forever.
- *   3. CONFIRMED PROTECTION (scalars): confirmed budget and purchaseTimeline are
- *      never overwritten by a pending patch. Only confirmed or non-pending patches
- *      may replace a confirmed scalar.
- *   4. OBJECTION PROTECTION: occurrence count is never incremented on a confirmed
- *      objection by a pending patch — counts only grow through SDR-confirmed events.
+ *      or overwritten by a pending patch item.
+ *   2. DISMISSED SKIP: dismissed entries excluded from identity-key matching.
+ *   3. CONFIRMED PROTECTION (scalars): confirmed budget/purchaseTimeline not
+ *      overwritten by pending patches.
+ *   4. OBJECTION PROTECTION: occurrence count not incremented by pending patches.
+ *
+ * Phase 7D-A — conflict detection:
+ *   5. SUPERSEDED SKIP: superseded entries excluded from identity-key matching,
+ *      same as dismissed. Allows re-extraction of a superseded entity.
+ *   6. CONFLICT DETECTION (arrays): when a pending patch matches a confirmed entry
+ *      AND the values differ meaningfully (per hasMeaningfulDifference()), the
+ *      conflict is stored as conflictWith on the confirmed entry. The confirmed
+ *      entry is NOT mutated. conflictWith holds the extraction's values + provenance.
+ *   7. CONFLICT DETECTION (scalars): same logic for budget and purchaseTimeline.
  *
  * Idempotent: calling twice with the same patch produces the same result as once.
  * Pure: does not mutate either argument. Returns a new object.
@@ -169,16 +280,17 @@ export function isConfirmed(item) {
 export function mergeAccountKnowledge(existing, patch) {
   const now = new Date().toISOString();
 
+  // ── helpers ──────────────────────────────────────────────────────────────
+  // Entries invisible to identity-key dedup: dismissed and superseded.
+  const isInvisible = e => e.reviewStatus === 'dismissed' || e.reviewStatus === 'superseded';
+
   // ── competitors — dedupe by name (case-insensitive) ──
-  // Protection: dismissed entries skipped in identity-key search (re-extraction allowed).
-  // Protection: confirmed entries not overwritten by pending patches.
   const mergedCompetitors = [...(existing.competitors || [])];
   for (const c of (patch.competitors || [])) {
     const key = c.name?.toLowerCase().trim();
     if (!key) continue;
-    // Only match against non-dismissed entries (dismissed = invisible to dedup)
     const idx = mergedCompetitors.findIndex(
-      e => e.name?.toLowerCase().trim() === key && e.reviewStatus !== 'dismissed'
+      e => e.name?.toLowerCase().trim() === key && !isInvisible(e)
     );
     if (idx === -1) {
       mergedCompetitors.push(c);
@@ -186,27 +298,38 @@ export function mergeAccountKnowledge(existing, patch) {
       const existingConfirmed = isConfirmed(mergedCompetitors[idx]);
       const patchIsPending    = !c.reviewStatus || c.reviewStatus === 'pending';
       if (existingConfirmed && patchIsPending) {
-        // Confirmed entry protected — pending patch cannot overwrite SDR-confirmed data
+        // Phase 7D-A: instead of silently ignoring, detect conflict
+        if (hasMeaningfulDifference('competitors', mergedCompetitors[idx], c)) {
+          mergedCompetitors[idx] = {
+            ...mergedCompetitors[idx],
+            conflictWith: {
+              strength:      c.strength,
+              context:       c.context,
+              source:        c.source,
+              sourceDate:    c.sourceDate,
+              extractedFrom: patch.lastExtractedFrom || null,
+            },
+          };
+        }
+        // No meaningful difference → no-op (same as before)
         continue;
       }
       mergedCompetitors[idx] = {
         ...mergedCompetitors[idx],
         strength: c.strength && c.strength !== 'unknown' ? c.strength : mergedCompetitors[idx].strength,
         context:  c.context  || mergedCompetitors[idx].context,
-        // Preserve existing reviewStatus if already confirmed; otherwise allow update
         reviewStatus: existingConfirmed ? mergedCompetitors[idx].reviewStatus : (c.reviewStatus || mergedCompetitors[idx].reviewStatus),
       };
     }
   }
 
   // ── decisionMakers — dedupe by name (case-insensitive) ──
-  // Same dismissed-skip and confirmed-protection rules as competitors.
   const mergedDMs = [...(existing.decisionMakers || [])];
   for (const dm of (patch.decisionMakers || [])) {
     const key = dm.name?.toLowerCase().trim();
     if (!key) continue;
     const idx = mergedDMs.findIndex(
-      e => e.name?.toLowerCase().trim() === key && e.reviewStatus !== 'dismissed'
+      e => e.name?.toLowerCase().trim() === key && !isInvisible(e)
     );
     if (idx === -1) {
       mergedDMs.push(dm);
@@ -214,7 +337,20 @@ export function mergeAccountKnowledge(existing, patch) {
       const existingConfirmed = isConfirmed(mergedDMs[idx]);
       const patchIsPending    = !dm.reviewStatus || dm.reviewStatus === 'pending';
       if (existingConfirmed && patchIsPending) {
-        continue; // confirmed DM protected from pending overwrite
+        if (hasMeaningfulDifference('decisionMakers', mergedDMs[idx], dm)) {
+          mergedDMs[idx] = {
+            ...mergedDMs[idx],
+            conflictWith: {
+              role:          dm.role,
+              authority:     dm.authority,
+              notes:         dm.notes,
+              source:        dm.source,
+              sourceDate:    dm.sourceDate,
+              extractedFrom: patch.lastExtractedFrom || null,
+            },
+          };
+        }
+        continue;
       }
       mergedDMs[idx] = {
         ...mergedDMs[idx],
@@ -227,43 +363,54 @@ export function mergeAccountKnowledge(existing, patch) {
   }
 
   // ── currentTools — dedupe by name (case-insensitive) ──
-  // Dismissed-skip applied; no field-update on match (tools are append-only by design).
   const mergedTools = [...(existing.currentTools || [])];
   for (const t of (patch.currentTools || [])) {
     const key = t.name?.toLowerCase().trim();
     if (!key) continue;
-    const alreadyExists = mergedTools.find(
-      e => e.name?.toLowerCase().trim() === key && e.reviewStatus !== 'dismissed'
+    const existingEntry = mergedTools.find(
+      e => e.name?.toLowerCase().trim() === key && !isInvisible(e)
     );
-    if (!alreadyExists) {
+    if (!existingEntry) {
       mergedTools.push(t);
+    } else {
+      const existingConfirmed = isConfirmed(existingEntry);
+      const patchIsPending    = !t.reviewStatus || t.reviewStatus === 'pending';
+      if (existingConfirmed && patchIsPending && hasMeaningfulDifference('currentTools', existingEntry, t)) {
+        const toolIdx = mergedTools.indexOf(existingEntry);
+        mergedTools[toolIdx] = {
+          ...mergedTools[toolIdx],
+          conflictWith: {
+            category:      t.category,
+            source:        t.source,
+            sourceDate:    t.sourceDate,
+            extractedFrom: patch.lastExtractedFrom || null,
+          },
+        };
+      }
     }
   }
 
   // ── businessGoals — dedupe by goal string (case-insensitive) ──
-  // Dismissed-skip applied; no field-update on match.
   const mergedGoals = [...(existing.businessGoals || [])];
   for (const g of (patch.businessGoals || [])) {
     const key = g.goal?.toLowerCase().trim();
     if (!key) continue;
     const alreadyExists = mergedGoals.find(
-      e => e.goal?.toLowerCase().trim() === key && e.reviewStatus !== 'dismissed'
+      e => e.goal?.toLowerCase().trim() === key && !isInvisible(e)
     );
     if (!alreadyExists) {
       mergedGoals.push(g);
     }
+    // Goals have no sub-values to conflict — no conflictWith logic needed
   }
 
   // ── recurringObjections — dedupe by objection string ──
-  // Dismissed-skip: dismissed objections invisible to dedup (can be re-extracted).
-  // Confirmed protection: occurrence count NOT incremented by a pending patch on a
-  // confirmed entry — counts only grow through SDR-confirmed saves.
   const mergedObjections = [...(existing.recurringObjections || [])];
   for (const o of (patch.recurringObjections || [])) {
     const key = o.objection?.toLowerCase().trim();
     if (!key) continue;
     const idx = mergedObjections.findIndex(
-      e => e.objection?.toLowerCase().trim() === key && e.reviewStatus !== 'dismissed'
+      e => e.objection?.toLowerCase().trim() === key && !isInvisible(e)
     );
     if (idx === -1) {
       mergedObjections.push({ ...o, occurrences: o.occurrences || 1, firstSeen: o.firstSeen || now, lastSeen: now });
@@ -271,8 +418,7 @@ export function mergeAccountKnowledge(existing, patch) {
       const existingConfirmed = isConfirmed(mergedObjections[idx]);
       const patchIsPending    = !o.reviewStatus || o.reviewStatus === 'pending';
       if (existingConfirmed && patchIsPending) {
-        // Confirmed objection protected — pending patch cannot increment occurrences
-        // or mutate the entry. Conflict surface deferred to Phase 7D.
+        // Confirmed objection: no occurrence increment, no conflictWith (no sub-values to conflict)
         continue;
       }
       mergedObjections[idx] = {
@@ -285,30 +431,51 @@ export function mergeAccountKnowledge(existing, patch) {
     }
   }
 
-  // ── budget — scalar replace-on-write with confirmed protection ──
-  // A confirmed budget is never overwritten by a pending patch.
-  // Only confirmed or non-pending patches may replace a confirmed scalar.
+  // ── budget — scalar replace-on-write with confirmed protection + conflict detection ──
   let resolvedBudget = existing.budget;
   if (patch.budget !== undefined) {
     const existingConfirmed = existing.budget && isConfirmed(existing.budget);
     const patchIsPending    = !patch.budget?.reviewStatus || patch.budget?.reviewStatus === 'pending';
     if (existingConfirmed && patchIsPending) {
-      // Confirmed budget protected — pending patch silently ignored
-      resolvedBudget = existing.budget;
+      if (hasMeaningfulDifference('budget', existing.budget, patch.budget)) {
+        resolvedBudget = {
+          ...existing.budget,
+          conflictWith: {
+            status:        patch.budget.status,
+            amount:        patch.budget.amount,
+            notes:         patch.budget.notes,
+            source:        patch.budget.source,
+            sourceDate:    patch.budget.sourceDate,
+            extractedFrom: patch.lastExtractedFrom || null,
+          },
+        };
+      }
+      // No meaningful difference → keep existing unchanged
     } else {
       resolvedBudget = patch.budget;
     }
   }
 
-  // ── purchaseTimeline — scalar replace-on-write with confirmed protection ──
-  // Same protection rules as budget.
+  // ── purchaseTimeline — scalar replace-on-write with confirmed protection + conflict detection ──
   let resolvedTimeline = existing.purchaseTimeline;
   if (patch.purchaseTimeline !== undefined) {
     const existingConfirmed = existing.purchaseTimeline && isConfirmed(existing.purchaseTimeline);
     const patchIsPending    = !patch.purchaseTimeline?.reviewStatus || patch.purchaseTimeline?.reviewStatus === 'pending';
     if (existingConfirmed && patchIsPending) {
-      // Confirmed timeline protected — pending patch silently ignored
-      resolvedTimeline = existing.purchaseTimeline;
+      if (hasMeaningfulDifference('purchaseTimeline', existing.purchaseTimeline, patch.purchaseTimeline)) {
+        resolvedTimeline = {
+          ...existing.purchaseTimeline,
+          conflictWith: {
+            urgency:       patch.purchaseTimeline.urgency,
+            targetDate:    patch.purchaseTimeline.targetDate,
+            notes:         patch.purchaseTimeline.notes,
+            source:        patch.purchaseTimeline.source,
+            sourceDate:    patch.purchaseTimeline.sourceDate,
+            extractedFrom: patch.lastExtractedFrom || null,
+          },
+        };
+      }
+      // No meaningful difference → keep existing unchanged
     } else {
       resolvedTimeline = patch.purchaseTimeline;
     }

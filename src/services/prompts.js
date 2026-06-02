@@ -10,7 +10,7 @@
  *   - lead.keyword
  */
 
-import { isConfirmed } from '../data/schema.js';
+import { isConfirmed, isPromptEligible } from '../data/schema.js';
 
 // ─── Phase 7A Fix 3: Unified touch history builder ───────────────────────────
 // Merges legacy touchLog (flat format) and modern activities[] (v4 format) into
@@ -134,26 +134,29 @@ export function buildLeadContext(lead) {
       : null,
   ].filter(Boolean).join('\n');
 
-  // ── Account Knowledge — Phase 7B / 7C-1 ──────────────────────────────────
+  // ── Account Knowledge — Phase 7B / 7C-1 / 7D-A ─────────────────────────
   // Reads from lead.accountKnowledge (authoritative) with fallback to the
   // deprecated intelligence fields for leads not yet migrated.
-  // Phase 7C-1: all arrays and scalars filtered through isConfirmed() before
-  // injection. Pending (AI-extracted, unreviewed) and dismissed facts are
-  // excluded from prompt context. Pre-7C items (no reviewStatus) pass through
-  // as confirmed via isConfirmed() backward-compat rule.
-  // Arrays capped at 3 items; strings truncated at 80 chars to manage token budget.
+  // Phase 7C-1: filtered through isPromptEligible() (not isConfirmed()).
+  // Phase 7D-A: isPromptEligible() = isConfirmed(item) && !hasConflict(item).
+  //   — pending, dismissed, superseded: excluded (not trusted)
+  //   — confirmed with active conflictWith: excluded (contested, awaiting resolution)
+  //   — confirmed with no conflict: included (fully trusted)
+  // UI display (AccountKnowledgeTab, PrepareCallDrawer) uses isConfirmed() and
+  // continues to show conflicted facts — only prompts use isPromptEligible().
+  // Arrays capped at 3 items; strings truncated at 80 chars.
   // Metadata fields (lastExtractedFrom, extractionCount, lastUpdated) excluded.
   const trunc = (s, n = 80) => (s && s.length > n ? s.slice(0, n) + '…' : s || '');
   const ak = lead.accountKnowledge;
 
-  // Confirmed competitors — filter pending/dismissed; fall back to legacy intel field
+  // Prompt-eligible competitors — confirmed + no active conflict
   const akCompetitors = ak?.competitors?.length
-    ? ak.competitors.filter(isConfirmed)
+    ? ak.competitors.filter(isPromptEligible)
     : (lead.intelligence?.competitors || []).map(name => ({ name }));
 
-  // Confirmed decision makers — same pattern
+  // Prompt-eligible decision makers — same pattern
   const akDecisionMakers = ak?.decisionMakers?.length
-    ? ak.decisionMakers.filter(isConfirmed)
+    ? ak.decisionMakers.filter(isPromptEligible)
     : (lead.intelligence?.decisionMakers || []).map(name => ({ name }));
 
   const akLines = [
@@ -163,20 +166,20 @@ export function buildLeadContext(lead) {
     akDecisionMakers.length
       ? `Decision Makers: ${akDecisionMakers.slice(0,3).map(d => d.role ? `${trunc(d.name)} (${trunc(d.role)})` : trunc(d.name)).join(' | ')}`
       : null,
-    ak?.currentTools?.filter(isConfirmed).length
-      ? `Current Tools: ${ak.currentTools.filter(isConfirmed).slice(0,3).map(t => t.category ? `${trunc(t.name)} (${trunc(t.category)})` : trunc(t.name)).join(' | ')}`
+    ak?.currentTools?.filter(isPromptEligible).length
+      ? `Current Tools: ${ak.currentTools.filter(isPromptEligible).slice(0,3).map(t => t.category ? `${trunc(t.name)} (${trunc(t.category)})` : trunc(t.name)).join(' | ')}`
       : null,
-    ak?.budget && isConfirmed(ak.budget)
+    ak?.budget && isPromptEligible(ak.budget)
       ? `Budget: ${ak.budget.status || 'unknown'}${ak.budget.amount ? ` — ${trunc(ak.budget.amount)}` : ''}${ak.budget.notes ? ` (${trunc(ak.budget.notes)})` : ''}`
       : null,
-    ak?.purchaseTimeline && isConfirmed(ak.purchaseTimeline)
+    ak?.purchaseTimeline && isPromptEligible(ak.purchaseTimeline)
       ? `Timeline: ${ak.purchaseTimeline.urgency || 'unknown'}${ak.purchaseTimeline.targetDate ? ` — ${trunc(ak.purchaseTimeline.targetDate)}` : ''}${ak.purchaseTimeline.notes ? ` (${trunc(ak.purchaseTimeline.notes)})` : ''}`
       : null,
-    ak?.businessGoals?.filter(isConfirmed).length
-      ? `Business Goals: ${ak.businessGoals.filter(isConfirmed).slice(0,3).map(g => trunc(g.goal)).join(' | ')}`
+    ak?.businessGoals?.filter(isPromptEligible).length
+      ? `Business Goals: ${ak.businessGoals.filter(isPromptEligible).slice(0,3).map(g => trunc(g.goal)).join(' | ')}`
       : null,
-    ak?.recurringObjections?.filter(isConfirmed).length
-      ? `Recurring Objections: ${ak.recurringObjections.filter(isConfirmed).slice(0,3).map(o => `${trunc(o.objection)} (${o.occurrences}×, ${o.resolved ? 'resolved' : 'open'})`).join(' | ')}`
+    ak?.recurringObjections?.filter(isPromptEligible).length
+      ? `Recurring Objections: ${ak.recurringObjections.filter(isPromptEligible).slice(0,3).map(o => `${trunc(o.objection)} (${o.occurrences}×, ${o.resolved ? 'resolved' : 'open'})`).join(' | ')}`
       : null,
   ].filter(Boolean).join('\n');
 
