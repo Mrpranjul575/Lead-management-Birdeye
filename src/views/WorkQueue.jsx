@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Flame, RefreshCw, CalendarCheck, MessageSquare,
   RotateCcw, CheckCircle2, SlidersHorizontal, Filter,
@@ -8,26 +8,6 @@ import { STAGE_STYLE, INTENT_STYLE } from '../constants/stages';
 import ScoreRing from '../components/ui/ScoreRing';
 import NextBestStep from '../components/NextBestStep';
 import { useApp } from '../context/AppContext';
-
-/* ─── Stat card data — exact match to screen ─── */
-const STATS = [
-  { label:'Hot Leads',       value:3,  sub:'High priority',  icon:Flame,         ic:'#EF4444', ib:'rgba(239,68,68,0.12)'    },
-  { label:'Follow Ups Due',  value:5,  sub:'Due today',      icon:RefreshCw,     ic:'#F59E0B', ib:'rgba(245,158,11,0.12)'   },
-  { label:'Demos to Book',   value:2,  sub:'Ready to book',  icon:CalendarCheck, ic:'#7C5CE8', ib:'rgba(91,63,200,0.15)'    },
-  { label:'No Response',     value:7,  sub:'No reply yet',   icon:MessageSquare, ic:'#38BDF8', ib:'rgba(56,189,248,0.12)'   },
-  { label:'Re-engage',       value:4,  sub:'Cold > 7 days',  icon:RotateCcw,     ic:'#F472B6', ib:'rgba(236,72,153,0.12)'   },
-  { label:'Converted',       value:8,  sub:'This week',      icon:CheckCircle2,  ic:'#10B981', ib:'rgba(16,185,129,0.12)'   },
-];
-
-/* ─── Filter tabs — exact match ─── */
-const FILTERS = [
-  { id:'all',        label:'All Leads',  count:156 },
-  { id:'hot',        label:'Hot',        count:3   },
-  { id:'followup',   label:'Follow Ups', count:5   },
-  { id:'noresponse', label:'No Response',count:7   },
-  { id:'reengage',   label:'Re-engage',  count:4   },
-  { id:'demos',      label:'Demos',      count:2   },
-];
 
 /* ─── Stage colors ─── */
 const STAGE = {
@@ -76,6 +56,34 @@ export default function WorkQueue() {
   const { leads, selected, toggleSelect, selectAll, clearSelect, bulkUpdateStage, openLead, search } = useApp();
   const [activeFilter, setActiveFilter] = useState('all');
 
+  /* ── Live stat counts ── */
+  const hotCount        = useMemo(() => leads.filter(l => l.stage === 'Hot').length,         [leads]);
+  const followUpCount   = useMemo(() => leads.filter(l => l.stage === 'Follow Up').length,   [leads]);
+  const demoCount       = useMemo(() => leads.filter(l => l.stage === 'Demo Booked').length, [leads]);
+  const noResponseCount = useMemo(() => leads.filter(l => l.stage === 'Contacted').length,   [leads]);
+  const reEngageCount   = useMemo(() => leads.filter(l => l.stage === 'Re-engage').length,   [leads]);
+  const convertedCount  = useMemo(() => leads.filter(l => l.stage === 'Converted').length,   [leads]);
+
+  /* ── Stat card definitions (derived) ── */
+  const STATS = useMemo(() => [
+    { label:'Hot Leads',       value:hotCount,        sub:'High priority',  icon:Flame,         ic:'#EF4444', ib:'rgba(239,68,68,0.12)'    },
+    { label:'Follow Ups Due',  value:followUpCount,   sub:'Due today',      icon:RefreshCw,     ic:'#F59E0B', ib:'rgba(245,158,11,0.12)'   },
+    { label:'Demos to Book',   value:demoCount,       sub:'Ready to book',  icon:CalendarCheck, ic:'#7C5CE8', ib:'rgba(91,63,200,0.15)'    },
+    { label:'No Response',     value:noResponseCount, sub:'Awaiting reply', icon:MessageSquare, ic:'#38BDF8', ib:'rgba(56,189,248,0.12)'   },
+    { label:'Re-engage',       value:reEngageCount,   sub:'Cold > 7 days',  icon:RotateCcw,     ic:'#F472B6', ib:'rgba(236,72,153,0.12)'   },
+    { label:'Converted',       value:convertedCount,  sub:'All time',       icon:CheckCircle2,  ic:'#10B981', ib:'rgba(16,185,129,0.12)'   },
+  ], [hotCount, followUpCount, demoCount, noResponseCount, reEngageCount, convertedCount]);
+
+  /* ── Filter tab definitions (derived) ── */
+  const FILTERS = useMemo(() => [
+    { id:'all',        label:'All Leads',   count:leads.length  },
+    { id:'hot',        label:'Hot',         count:hotCount      },
+    { id:'followup',   label:'Follow Ups',  count:followUpCount },
+    { id:'noresponse', label:'No Response', count:noResponseCount },
+    { id:'reengage',   label:'Re-engage',   count:reEngageCount },
+    { id:'demos',      label:'Demos',       count:demoCount     },
+  ], [leads.length, hotCount, followUpCount, noResponseCount, reEngageCount, demoCount]);
+
   /* filter + search */
   const filtered = leads.filter(l => {
     if (search) {
@@ -84,7 +92,7 @@ export default function WorkQueue() {
     }
     if (activeFilter === 'hot'        && l.stage !== 'Hot')         return false;
     if (activeFilter === 'followup'   && l.stage !== 'Follow Up')   return false;
-    if (activeFilter === 'noresponse' && l.stage !== 'No Response') return false;
+    if (activeFilter === 'noresponse' && l.stage !== 'Contacted') return false;
     if (activeFilter === 'reengage'   && l.stage !== 'Re-engage')   return false;
     if (activeFilter === 'demos'      && l.stage !== 'Demo Booked') return false;
     return true;
