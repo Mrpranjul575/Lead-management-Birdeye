@@ -80,10 +80,15 @@ export function AppProvider({ children }) {
 
   // ── Intelligence ──
   const updateIntelligence = useCallback((leadId, patch) => {
-    updateLead(leadId, {
-      intelligence: { ...leads.find(l=>l.id===leadId)?.intelligence, ...patch, lastUpdated: new Date().toISOString() }
-    });
-  }, [leads, updateLead]);
+    setLeads(ls => ls.map(l => l.id===leadId
+      ? { ...l, intelligence: { ...l.intelligence, ...patch, lastUpdated: new Date().toISOString() } }
+      : l
+    ));
+    setActiveLead(al => al?.id===leadId
+      ? { ...al, intelligence: { ...al.intelligence, ...patch, lastUpdated: new Date().toISOString() } }
+      : al
+    );
+  }, []);
 
   // ── Unified Activity Engine ──
   const addActivity = useCallback((leadId, type, summary, details = {}) => {

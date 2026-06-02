@@ -337,7 +337,7 @@ const TABS = [
 ];
 
 /* ─── Tab: Overview ─── */
-function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp }) {
+function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording, onTabChange }) {
   const { openCopilot } = useApp();
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const intel = lead.intelligence || {};
@@ -488,9 +488,9 @@ function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp }) {
             {[
               { icon:PhoneCall,     label:'Add Call Notes',  action:onCallNotes },
               { icon:Mail,          label:'Send Email',      action:()=>openCopilot('email',lead) },
-              { icon:Upload,        label:'Upload Recording',action:()=>setRecordingOpen(true) },
+              { icon:Upload,        label:'Upload Recording',action:onRecording },
               { icon:MessageSquare, label:'Log SMS',         action:()=>openCopilot('sms',lead) },
-              { icon:Plus,          label:'Add Note',        action:()=>setTab('memory') },
+              { icon:Plus,          label:'Add Note',        action:()=>onTabChange('memory') },
               { icon:FileText,      label:'Create Task',     action:onFollowUp },
             ].map(({ icon:Icon, label, action })=>(
               <button key={label} onClick={action} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px', borderRadius:7, border:'1px solid var(--b1)', background:'transparent', cursor:'pointer', color:'var(--t1)', fontSize:11, fontFamily:'inherit', transition:'all 0.12s', textAlign:'left' }}
@@ -1057,7 +1057,7 @@ export default function LeadPage() {
 
       {/* ── Tab content ── */}
       <div style={{ background:'var(--s1)', border:`1px solid ${B1}`, borderTop:'none', borderRadius:'0 0 12px 12px', padding:'20px', minHeight:400 }}>
-        {tab==='overview'        && <OverviewTab    lead={lead} onCallNotes={()=>setCallNotesOpen(true)} onPrepareCall={()=>setPrepareOpen(true)} onFollowUp={()=>setFollowUpOpen(true)}/>}
+        {tab==='overview'        && <OverviewTab    lead={lead} onCallNotes={()=>setCallNotesOpen(true)} onPrepareCall={()=>setPrepareOpen(true)} onFollowUp={()=>setFollowUpOpen(true)} onRecording={()=>setRecordingOpen(true)} onTabChange={setTab}/>}
         {tab==='ae_notes'        && <AENotesTab     lead={lead}/>}
         {tab==='ai_intelligence' && <AIIntelTab     lead={lead}/>}
         {tab==='timeline'        && <TimelineTab    lead={lead}/>}

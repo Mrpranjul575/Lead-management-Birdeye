@@ -4,12 +4,12 @@ import { useApp } from '../context/AppContext';
 import { STAGE_STYLE } from '../constants/stages';
 
 export default function ClipboardSearch() {
-  const { leads, openLead, closeLead, setClipSearch, setView } = useApp();
+  const { leads, openLead, closeLead, setClipSearch, setView, theme } = useApp();
   const [query,   setQuery]   = useState('');
   const [pasted,  setPasted]  = useState(false);
   const [results, setResults] = useState([]);
 
-  const dark = true; // follows app theme via CSS vars
+  const dark = theme === 'dark';
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
 
   // Auto-read clipboard on open
