@@ -41,6 +41,26 @@ export function buildLeadContext(lead) {
   const extraContext = [competitorLine, reviewsLine, keywordLine, gmbLine, slLine, mqlLine]
     .filter(Boolean).join('\n');
 
+  // ── AI Intelligence — read from lead.intelligence, render only populated fields ──
+  const intel = lead.intelligence || {};
+  const intelLines = [
+    intel.painPoints?.length
+      ? `Pain Points: ${intel.painPoints.join(' | ')}`
+      : null,
+    intel.objections?.length
+      ? `Known Objections: ${intel.objections.join(' | ')}`
+      : null,
+    intel.buyingSignals?.length
+      ? `Buying Signals: ${intel.buyingSignals.join(' | ')}`
+      : null,
+    intel.decisionMakers?.length
+      ? `Decision Makers: ${intel.decisionMakers.join(', ')}`
+      : null,
+    intel.suggestedNextAction
+      ? `Recommended Next Action: ${intel.suggestedNextAction}`
+      : null,
+  ].filter(Boolean).join('\n');
+
   return `═══ LEAD PROFILE ═══
 Business:     ${lead.business}
 Contact:      ${lead.contact || 'Decision Maker'}
@@ -56,6 +76,9 @@ ${extraContext ? `\n${extraContext}` : ''}
 
 ═══ AE NOTES & CONTEXT ═══
 ${notes || 'None yet.'}
+
+═══ AI INTELLIGENCE ═══
+${intelLines || 'No intelligence logged yet.'}
 
 ═══ PREVIOUS TOUCHES (do NOT repeat these angles) ═══
 ${prevTouches}`;
