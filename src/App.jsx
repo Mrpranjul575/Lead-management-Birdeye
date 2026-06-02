@@ -27,7 +27,7 @@ const VIEWS = {
 };
 
 function Shell() {
-  const { theme, view, activeLead, sidebarOpen, clipSearch } = useApp();
+  const { theme, view, activeLead, sidebarOpen, clipSearch, setClipSearch } = useApp();
   const SW = sidebarOpen ? 240 : 56;
   const fullWidth = ['pipeline','cadences'].includes(view);
 
@@ -41,7 +41,7 @@ function Shell() {
     const handler = (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
         e.preventDefault();
-        // handled by TopBar
+        setClipSearch(true);
       }
     };
     window.addEventListener('keydown', handler);

@@ -20,22 +20,9 @@ function FilteredView({ stage, title, sub, emoji }) {
 
   const filtered = leads.filter(l=>l.stage===stage);
 
-  const STAGE_STYLE = {
-    'Hot':         { bg:'rgba(239,68,68,0.15)',  color:'#F87171' },
-    'Contacted':   { bg:'rgba(245,158,11,0.15)', color:'#FCD34D' },
-    'Demo Booked': { bg:'rgba(91,63,200,0.18)',  color:'#7C5CE8' },
-    'Follow Up':   { bg:'rgba(56,189,248,0.15)', color:'#38BDF8' },
-    'Re-engage':   { bg:'rgba(251,146,60,0.15)', color:'#FB923C' },
-  };
-  const INTENT_STYLE = {
-    'AI Visibility': { bg:'rgba(91,63,200,0.15)', color:'#7C5CE8' },
-    'Review Growth': { bg:'rgba(59,130,246,0.15)',color:'#60A5FA' },
-    'Listings':      { bg:'rgba(16,185,129,0.15)',color:'#34D399' },
-  };
-
   const allIds = filtered.map(l=>l.id);
   const allSel = allIds.length>0 && allIds.every(id=>selected.has(id));
-  const GRID = '1fr 100px 56px 80px 80px 90px 110px 36px';
+  const GRID = '1fr 100px 56px 80px 80px 90px minmax(0,1fr) 36px';
 
   return (
     <div className="fade-up" style={{ display:'flex', flexDirection:'column', gap:16 }}>

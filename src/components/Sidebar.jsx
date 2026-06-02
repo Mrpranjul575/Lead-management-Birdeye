@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { useApp } from "../context/AppContext";
 import { Upload,
   LayoutDashboard, CheckSquare, Users, Flame, RefreshCw, CalendarCheck,
@@ -21,9 +22,15 @@ const NAV = [
 ];
 
 export default function Sidebar() {
-  const { theme, view, setView, toggleTheme, sidebarOpen, toggleSidebar, closeLead, openCopilot } = useApp();
+  const { theme, view, setView, toggleTheme, sidebarOpen, toggleSidebar, closeLead, openCopilot, leads } = useApp();
   const dark = theme === 'dark';
   const W = sidebarOpen ? 240 : 56;
+
+  const liveBadges = useMemo(() => ({
+    workqueue: leads.length,
+    hot:       leads.filter(l => l.stage === 'Hot').length,
+    followups: leads.filter(l => l.stage === 'Follow Up').length,
+  }), [leads]);
 
   const handleNav = (id) => {
     closeLead();   // always close lead page first
@@ -154,9 +161,9 @@ export default function Sidebar() {
               {sidebarOpen && (
                 <>
                   <span style={{ flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.label}</span>
-                  {item.badge!=null && (
+                  {(liveBadges[item.id] ?? item.badge) != null && (
                     <span style={{ fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:99, minWidth:18, textAlign:'center', ...getBadgeBg(item) }}>
-                      {item.badge}
+                      {liveBadges[item.id] ?? item.badge}
                     </span>
                   )}
                 </>

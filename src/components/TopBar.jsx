@@ -17,7 +17,7 @@ const NOTIFICATIONS = [
 ];
 
 export default function TopBar({ sidebarWidth=240 }) {
-  const { setClipSearch, theme, view, search, setSearch, activeLead } = useApp();
+  const { setClipSearch, theme, view, search, setSearch, activeLead, leads } = useApp();
   const [notifOpen, setNotifOpen] = useState(false);
   const dark = theme==='dark';
   const label  = activeLead ? activeLead.business : (LABELS[view]||'Dashboard');
@@ -25,6 +25,29 @@ export default function TopBar({ sidebarWidth=240 }) {
   const unreadCount = NOTIFICATIONS.filter(n=>n.unread).length;
 
   const T1=dark?'#E6EDF3':'#111827', T2=dark?'#8B949E':'#6B7280', B1=dark?'#30363D':'#E5E7EB';
+
+  const handleExport = () => {
+    const headers = [
+      'ID','Business','Contact','Email','Phone','Website','City','Industry',
+      'Intent','AI Score','Reviews','Rating','AI Visibility','Comp Gap',
+      'Stage','Next Action','Last Touch','Cadence Day','Tags',
+    ];
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const rows = leads.map(l => [
+      l.id, l.business, l.contact, l.email, l.phone, l.website, l.city, l.industry,
+      l.intent, l.aiScore, l.reviews, l.rating, l.aiVisibility, l.compGap,
+      l.stage, l.nextAction, l.lastTouch, l.cadenceDay,
+      (l.tags || []).join(';'),
+    ].map(esc).join(','));
+    const csv  = [headers.map(esc).join(','), ...rows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `birdeye-leads-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <>
@@ -68,7 +91,9 @@ export default function TopBar({ sidebarWidth=240 }) {
           </button>
 
           {/* Export */}
-          <button style={{
+          <button
+            onClick={handleExport}
+            style={{
             display:'flex', alignItems:'center', gap:5, padding:'6px 12px', borderRadius:8,
             border:`1px solid ${B1}`, background:'transparent', cursor:'pointer',
             color:T2, fontSize:11, fontWeight:500, fontFamily:'inherit', transition:'all 0.15s',
