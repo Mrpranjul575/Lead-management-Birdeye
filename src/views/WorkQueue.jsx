@@ -8,6 +8,11 @@ import { STAGE_STYLE, INTENT_STYLE } from '../constants/stages';
 import ScoreRing from '../components/ui/ScoreRing';
 import NextBestStep from '../components/NextBestStep';
 import { useApp } from '../context/AppContext';
+import { deriveSignals } from '../utils/intelligenceEngine';
+import { getPendingSteps } from '../utils/cadenceUtils';
+
+/* Numeric urgency order for sort comparator — precomputed once, never called in the sort loop */
+const URGENCY_ORDER = { Critical:0, High:1, Medium:2, Low:3 };
 
 /* ─── Stage colors ─── */
 const STAGE = {
@@ -111,7 +116,49 @@ export default function WorkQueue() {
   const allIds  = filtered.map(l => l.id);
   const allSel  = allIds.length > 0 && allIds.every(id => selected.has(id));
 
-  /* shared style shortcuts */
+  /* ── Intelligence-driven ranking ──
+   * Step 1: precompute derived values once per lead — no repeated calls in comparator.
+   * Step 2: sort using precomputed values only.
+   * Hierarchy: AI Score ↓ → Urgency ↑ (Critical first) → Pending cadence → Recent activity ↓
+   */
+  const ranked = useMemo(() => {
+    const items = filtered.map(lead => {
+      const derived    = deriveSignals(lead);
+      const hasPending = getPendingSteps(lead).length > 0;
+      const recentAct  = new Date(lead.activities?.[0]?.timestamp || 0).getTime();
+
+      // Build human-readable sort reason for tooltip explainability
+      const parts = [];
+      if      ((lead.aiScore || 0) >= 70) parts.push('High AI Score');
+      else if ((lead.aiScore || 0) >= 50) parts.push('Medium AI Score');
+      else                                parts.push('Low AI Score');
+      if (derived.urgency === 'Critical')  parts.push('Critical Urgency');
+      else if (derived.urgency === 'High') parts.push('High Urgency');
+      if (hasPending) parts.push('Active Cadence');
+
+      return {
+        lead,
+        aiScore:        lead.aiScore     || 0,
+        urgencyOrder:   URGENCY_ORDER[derived.urgency] ?? 3,
+        hasPending,
+        recentActivity: recentAct,
+        sortReason:     parts.join(' + ') || 'Base Order',
+      };
+    });
+
+    // Sort using precomputed values — zero function calls inside comparator
+    items.sort((a, b) => {
+      if (b.aiScore      !== a.aiScore)      return b.aiScore      - a.aiScore;        // 1. AI Score ↓
+      if (a.urgencyOrder !== b.urgencyOrder) return a.urgencyOrder - b.urgencyOrder;   // 2. Urgency ↑
+      const ap = a.hasPending ? 0 : 1;
+      const bp = b.hasPending ? 0 : 1;
+      if (ap !== bp)                         return ap - bp;                            // 3. Pending cadence
+      return b.recentActivity - a.recentActivity;                                       // 4. Recent activity ↓
+    });
+
+    return items;
+  }, [filtered]);
+
   const T1 = 'var(--t1)', T2 = 'var(--t2)', B1 = 'var(--b1)';
 
   /* table column widths — matches screen proportions */
@@ -177,8 +224,13 @@ export default function WorkQueue() {
             })}
           </div>
 
-          {/* Right: dropdowns + gear */}
+          {/* Right: ranking legend + dropdowns + gear */}
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <span
+              style={{ fontSize:10, color:T2, fontStyle:'italic', marginRight:4 }}
+              title="Leads are ranked by: AI Score → Urgency → Active Cadence Steps → Most Recent Activity">
+              Ranked: Score → Urgency → Cadence
+            </span>
             <button className="btn-ghost" style={{ padding:'4px 10px', fontSize:10 }}>All Owners <ChevronDown size={10}/></button>
             <button className="btn-ghost" style={{ padding:'4px 10px', fontSize:10 }}>All Intents <ChevronDown size={10}/></button>
             <button className="btn-ghost" style={{ padding:'4px 10px', fontSize:10 }}>More Filters <ChevronDown size={10}/></button>
@@ -240,7 +292,7 @@ export default function WorkQueue() {
 
         {/* ── Rows ── */}
         <div>
-          {filtered.map(lead => {
+          {ranked.map(({ lead, sortReason }) => {
             const stageStyle  = STAGE[lead.stage]  || STAGE['New'];
             const intentStyle = INTENT[lead.intent] || INTENT['AI Visibility'];
             const isSel       = selected.has(lead.id);
@@ -265,8 +317,8 @@ export default function WorkQueue() {
                     style={{ width:13, height:13, accentColor:'#5B3FC8', cursor:'pointer' }}/>
                 </div>
 
-                {/* Business name + email */}
-                <div style={{ minWidth:0 }}>
+                {/* Business name + email — title shows sortReason explanation on hover */}
+                <div style={{ minWidth:0 }} title={`Priority: ${sortReason}`}>
                   <div style={{ fontSize:12, fontWeight:600, color:T1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                     {lead.business}
                   </div>
@@ -352,7 +404,7 @@ export default function WorkQueue() {
           padding:'8px 14px', borderTop:`1px solid ${B1}`,
           background:'rgba(0,0,0,0.15)',
         }}>
-          <span style={{ fontSize:11, color:T2 }}>{filtered.length} leads</span>
+          <span style={{ fontSize:11, color:T2 }}>{ranked.length} leads</span>
           <div style={{ display:'flex', alignItems:'center', gap:3 }}>
             {['1','2','3','…','12'].map(p => (
               <button key={p} style={{
