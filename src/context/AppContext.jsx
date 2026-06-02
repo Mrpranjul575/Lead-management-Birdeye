@@ -1,7 +1,7 @@
 import { SheetsAdapter } from '../services/sheetsAdapter';
 import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { MOCK_LEADS, MOCK_CADENCES, SEQ_PLAN } from '../data/mockData';
-import { migrateLead, createActivity, createIntelligence, computeAiScore, applyScore, CURRENT_SCORE_VERSION } from '../data/schema';
+import { migrateLead, createActivity, createIntelligence, createAccountKnowledge, mergeAccountKnowledge, computeAiScore, applyScore, CURRENT_SCORE_VERSION, INTELLIGENCE_REJECTED_FIELDS } from '../data/schema';
 import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
 
 const AppCtx = createContext(null);
@@ -97,14 +97,54 @@ export function AppProvider({ children }) {
   }, []);
 
   // ── Intelligence ──
+  // Phase 7B: updateIntelligence rejects writes to fields owned by accountKnowledge.
+  // Ownership list is centralised in INTELLIGENCE_REJECTED_FIELDS (schema.js).
+  // Rejected keys are stripped with a console.warn; remaining keys are written normally.
+  // If the patch consists entirely of rejected fields, the function returns early
+  // to avoid a spurious lastUpdated write with no actual change.
   const updateIntelligence = useCallback((leadId, patch) => {
+    const rejectedKeys = Object.keys(patch).filter(k => INTELLIGENCE_REJECTED_FIELDS.has(k));
+    if (rejectedKeys.length > 0) {
+      console.warn(
+        `[Phase 7B] updateIntelligence: rejected write to [${rejectedKeys.join(', ')}] ` +
+        `— these fields are owned by accountKnowledge. Use updateAccountKnowledge() instead.`
+      );
+    }
+    const safePatch = Object.fromEntries(
+      Object.entries(patch).filter(([k]) => !INTELLIGENCE_REJECTED_FIELDS.has(k))
+    );
+    if (Object.keys(safePatch).length === 0) return;
     setLeads(ls => ls.map(l => {
       if (l.id !== leadId) return l;
-      return applyScore({ ...l, intelligence: { ...l.intelligence, ...patch, lastUpdated: new Date().toISOString() } });
+      return applyScore({ ...l, intelligence: { ...l.intelligence, ...safePatch, lastUpdated: new Date().toISOString() } });
     }));
     setActiveLead(al => {
       if (al?.id !== leadId) return al;
-      return applyScore({ ...al, intelligence: { ...al.intelligence, ...patch, lastUpdated: new Date().toISOString() } });
+      return applyScore({ ...al, intelligence: { ...al.intelligence, ...safePatch, lastUpdated: new Date().toISOString() } });
+    });
+  }, []);
+
+  // ── Account Knowledge ──
+  // Phase 7B: single write path for all accountKnowledge-owned fields.
+  // Uses mergeAccountKnowledge() (pure function in schema.js) for all array
+  // deduplication and field-level merge rules. applyScore() is intentionally
+  // NOT called here — scoring functions do not read accountKnowledge.
+  const updateAccountKnowledge = useCallback((leadId, patch) => {
+    setLeads(ls => ls.map(l => {
+      if (l.id !== leadId) return l;
+      const merged = mergeAccountKnowledge(
+        l.accountKnowledge || createAccountKnowledge(),
+        patch
+      );
+      return { ...l, accountKnowledge: merged };
+    }));
+    setActiveLead(al => {
+      if (al?.id !== leadId) return al;
+      const merged = mergeAccountKnowledge(
+        al.accountKnowledge || createAccountKnowledge(),
+        patch
+      );
+      return { ...al, accountKnowledge: merged };
     });
   }, []);
 
@@ -252,7 +292,7 @@ export function AppProvider({ children }) {
       sidebarOpen, toggleSidebar,
       view, setView,
       leads, addLead, updateLead, updateLeadMerged,
-      updateIntelligence,
+      updateIntelligence, updateAccountKnowledge,
       addActivity, addActivityEntry, addMemoryEntry, removeMemoryEntry, addTouchEntry,
       cadences, saveCadence, deleteCadence,
       markStepComplete, advanceCadenceDay,

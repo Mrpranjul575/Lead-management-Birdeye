@@ -132,6 +132,46 @@ export function buildLeadContext(lead) {
       : null,
   ].filter(Boolean).join('\n');
 
+  // ── Account Knowledge — Phase 7B ─────────────────────────────────────────
+  // Reads from lead.accountKnowledge (authoritative) with fallback to the
+  // deprecated intelligence fields for leads not yet migrated.
+  // Arrays capped at 3 items; strings truncated at 80 chars to manage token budget.
+  // Metadata fields (lastExtractedFrom, extractionCount, lastUpdated) are excluded.
+  const trunc = (s, n = 80) => (s && s.length > n ? s.slice(0, n) + '…' : s || '');
+  const ak = lead.accountKnowledge;
+
+  const akCompetitors = ak?.competitors?.length
+    ? ak.competitors
+    : (lead.intelligence?.competitors || []).map(name => ({ name }));
+
+  const akDecisionMakers = ak?.decisionMakers?.length
+    ? ak.decisionMakers
+    : (lead.intelligence?.decisionMakers || []).map(name => ({ name }));
+
+  const akLines = [
+    akCompetitors.length
+      ? `Competitors: ${akCompetitors.slice(0,3).map(c => c.strength && c.strength !== 'unknown' ? `${trunc(c.name)} (${c.strength})` : trunc(c.name)).join(' | ')}`
+      : null,
+    akDecisionMakers.length
+      ? `Decision Makers: ${akDecisionMakers.slice(0,3).map(d => d.role ? `${trunc(d.name)} (${trunc(d.role)})` : trunc(d.name)).join(' | ')}`
+      : null,
+    ak?.currentTools?.length
+      ? `Current Tools: ${ak.currentTools.slice(0,3).map(t => t.category ? `${trunc(t.name)} (${trunc(t.category)})` : trunc(t.name)).join(' | ')}`
+      : null,
+    ak?.budget
+      ? `Budget: ${ak.budget.status || 'unknown'}${ak.budget.amount ? ` — ${trunc(ak.budget.amount)}` : ''}${ak.budget.notes ? ` (${trunc(ak.budget.notes)})` : ''}`
+      : null,
+    ak?.purchaseTimeline
+      ? `Timeline: ${ak.purchaseTimeline.urgency || 'unknown'}${ak.purchaseTimeline.targetDate ? ` — ${trunc(ak.purchaseTimeline.targetDate)}` : ''}${ak.purchaseTimeline.notes ? ` (${trunc(ak.purchaseTimeline.notes)})` : ''}`
+      : null,
+    ak?.businessGoals?.length
+      ? `Business Goals: ${ak.businessGoals.slice(0,3).map(g => trunc(g.goal)).join(' | ')}`
+      : null,
+    ak?.recurringObjections?.length
+      ? `Recurring Objections: ${ak.recurringObjections.slice(0,3).map(o => `${trunc(o.objection)} (${o.occurrences}×, ${o.resolved ? 'resolved' : 'open'})`).join(' | ')}`
+      : null,
+  ].filter(Boolean).join('\n');
+
   return `═══ LEAD PROFILE ═══
 Business:     ${lead.business}
 Contact:      ${lead.contact || 'Decision Maker'}
@@ -150,7 +190,7 @@ ${notes || 'None yet.'}
 
 ═══ AI INTELLIGENCE ═══
 ${intelLines || 'No intelligence logged yet.'}
-
+${akLines ? `\n═══ ACCOUNT KNOWLEDGE ═══\n${akLines}` : ''}
 ═══ PREVIOUS TOUCHES (do NOT repeat these angles) ═══
 ${prevTouches}`;
 }

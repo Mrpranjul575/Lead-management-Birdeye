@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext';
 import { transcribeWithGemini, parseTranscriptIntelligence } from '../services/aiProvider';
 
 export default function RecordingUpload({ lead, onClose }) {
-  const { addActivity, updateIntelligence, updateLead, settings } = useApp();
+  const { addActivity, updateIntelligence, updateAccountKnowledge, updateLead, settings } = useApp();
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const S2='var(--s2)';
   const fileRef = useRef();
@@ -70,15 +70,15 @@ export default function RecordingUpload({ lead, onClose }) {
   };
 
   const handleSave = () => {
-    // Save transcript as activity
-    addActivity(lead.id, 'Transcript', `Call recording: ${file?.name || 'recording'}`, {
+    // Capture returned entry for activityId provenance (Revision 1)
+    const entry = addActivity(lead.id, 'Transcript', `Call recording: ${file?.name || 'recording'}`, {
       content: transcript,
       fileName: file?.name,
       outcome: intel?.sentiment || 'Neutral',
       source: 'recording',
     });
 
-    // Update intelligence with parsed data
+    // Update intelligence with parsed data — scoring/signal fields only (Phase 7B)
     if (intel) {
       const existing = lead.intelligence || {};
       const merge = (a, b) => [...new Set([...(a||[]), ...(b||[])])].filter(Boolean);
@@ -92,19 +92,40 @@ export default function RecordingUpload({ lead, onClose }) {
           ? intel.actionItems.join('; ')
           : intel.nextBestAction || existing.nextBestAction;
 
+      // Phase 7B: competitors and decisionMakers removed from intelligence patch
+      // — they are now written exclusively to accountKnowledge below.
       updateIntelligence(lead.id, {
         summary:           intel.summary  || existing.summary,
-        painPoints:        merge(existing.painPoints,    intel.painPoints),
-        competitors:       merge(existing.competitors,   intel.competitors),
-        objections:        merge(existing.objections,    intel.objections),
-        buyingSignals:     merge(existing.buyingSignals, intel.buyingSignals),
-        decisionMakers:    merge(existing.decisionMakers,intel.decisionMakers),
+        painPoints:        merge(existing.painPoints,   intel.painPoints),
+        objections:        merge(existing.objections,   intel.objections),
+        buyingSignals:     merge(existing.buyingSignals,intel.buyingSignals),
         lastConversation:  intel.summary || existing.lastConversation,
         nextBestAction:    resolvedNextBestAction,
       });
+
+      // Phase 7B: route competitors and decisionMakers to accountKnowledge
+      const akPatch = {};
+      if (intel.competitors?.length) {
+        akPatch.competitors = intel.competitors.map(name => ({
+          name, strength: 'unknown', context: '',
+          source: 'transcript', sourceDate: new Date().toISOString(),
+        }));
+      }
+      if (intel.decisionMakers?.length) {
+        akPatch.decisionMakers = intel.decisionMakers.map(name => ({
+          name, role: '', authority: 'unknown', notes: '',
+          source: 'transcript', sourceDate: new Date().toISOString(),
+        }));
+      }
+      if (Object.keys(akPatch).length) {
+        // Revision 1: use activityId from returned entry for complete provenance
+        akPatch.lastExtractedFrom = entry.activityId;
+        updateAccountKnowledge(lead.id, akPatch);
+      }
+
+      // Sync nextAction on the lead root so WorkQueue / NextBestStep see it immediately
+      if (resolvedNextBestAction) updateLead(lead.id, { nextAction: resolvedNextBestAction });
     }
-    // Sync nextAction on the lead root so WorkQueue / NextBestStep see it immediately
-    if (resolvedNextBestAction) updateLead(lead.id, { nextAction: resolvedNextBestAction });
 
     setSaved(true);
     setTimeout(onClose, 1200);

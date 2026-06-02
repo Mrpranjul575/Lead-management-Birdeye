@@ -115,7 +115,7 @@ function outcomeColor(outcome) {
    CALL NOTES MODAL
 ═══════════════════════════════════════════════════════════════ */
 function CallNotesModal({ lead, onClose }) {
-  const { addActivity, updateIntelligence, updateLead } = useApp();
+  const { addActivity, updateIntelligence, updateAccountKnowledge, updateLead } = useApp();
   const [outcome,   setOutcome]  = useState('Connected');
   const [notes,     setNotes]    = useState('');
   const [nextStep,  setNextStep] = useState('');
@@ -131,23 +131,47 @@ function CallNotesModal({ lead, onClose }) {
 
   const handleSave = () => {
     const summary = `Call ${outcome} — ${duration ? duration+'min' : ''} — ${sentiment}`;
-    addActivity(lead.id, 'Call', summary, { outcome, notes, nextStep, duration, sentiment, content: notes });
+    // Capture returned entry so we have the activityId for accountKnowledge provenance
+    const entry = addActivity(lead.id, 'Call', summary, { outcome, notes, nextStep, duration, sentiment, content: notes });
+
     if (notes) {
-      // Parse notes for intelligence updates
-      const intel = {};
-      if (notes.toLowerCase().includes('budget'))     intel.budget = notes.match(/budget[:\s]+([^\n.]+)/i)?.[1]?.trim() || '';
+      // ── intelligence patch — scoring/signal fields only ──
+      const intelPatch = {};
+      if (notes.toLowerCase().includes('objection')) {
+        const obj = notes.match(/objection[:\s]+([^\n.]+)/i)?.[1]?.trim();
+        if (obj) intelPatch.objections = [...(lead.intelligence?.objections||[]), obj].filter(Boolean);
+      }
+      if (notes.toLowerCase().includes('interested') || sentiment==='Positive' || sentiment==='Very Positive') {
+        intelPatch.buyingSignals = [...(lead.intelligence?.buyingSignals||[]),
+          `${outcome} on ${new Date().toLocaleDateString()}`];
+      }
+      if (nextStep) intelPatch.nextBestAction = nextStep;
+      if (notes)    intelPatch.lastConversation = notes;
+      if (Object.keys(intelPatch).length) updateIntelligence(lead.id, intelPatch);
+
+      // ── accountKnowledge patch — account fact fields (Phase 7B) ──
+      const akPatch = {};
       if (notes.toLowerCase().includes('competitor')) {
         const comp = notes.match(/competitor[:\s]+([^\n.]+)/i)?.[1]?.trim();
-        if (comp) intel.competitors = [...(lead.intelligence?.competitors||[]), comp].filter((v,i,a)=>a.indexOf(v)===i);
+        if (comp) akPatch.competitors = [{
+          name: comp, strength: 'unknown', context: '',
+          source: 'call_note', sourceDate: new Date().toISOString(),
+        }];
       }
-      if (notes.toLowerCase().includes('objection'))  intel.objections = [...(lead.intelligence?.objections||[]), notes.match(/objection[:\s]+([^\n.]+)/i)?.[1]?.trim()].filter(Boolean);
-      if (notes.toLowerCase().includes('interested') || sentiment==='Positive' || sentiment==='Very Positive') {
-        intel.buyingSignals = [...(lead.intelligence?.buyingSignals||[]), `${outcome} on ${new Date().toLocaleDateString()}`];
+      if (notes.toLowerCase().includes('budget')) {
+        const budgetText = notes.match(/budget[:\s]+([^\n.]+)/i)?.[1]?.trim();
+        if (budgetText) akPatch.budget = {
+          status: 'exploring', amount: budgetText, approvedBy: '',
+          notes: '', source: 'call_note', sourceDate: new Date().toISOString(),
+        };
       }
-      if (nextStep) intel.nextBestAction = nextStep;
-      if (notes)    intel.lastConversation = notes;
-      if (Object.keys(intel).length) updateIntelligence(lead.id, intel);
+      if (Object.keys(akPatch).length) {
+        // Revision 1: use activityId from returned entry for complete provenance
+        akPatch.lastExtractedFrom = entry.activityId;
+        updateAccountKnowledge(lead.id, akPatch);
+      }
     }
+
     if (nextStep) updateLead(lead.id, { nextAction: nextStep });
     setSaved(true);
     setTimeout(onClose, 1000);

@@ -52,18 +52,193 @@ export function createActivity(type, summary, details = {}) {
 }
 
 /**
- * createIntelligence — factory for the intelligence object
+ * INTELLIGENCE_REJECTED_FIELDS — Phase 7B
+ *
+ * Single authoritative list of intelligence fields that have migrated to
+ * accountKnowledge. Centralised here so ownership decisions are grep-able
+ * from one location. Referenced by:
+ *   - updateIntelligence() rejection guard  (AppContext.jsx)
+ *   - migrateLead() bootstrap               (schema.js)
+ *   - mergeAccountKnowledge()               (schema.js)
+ *
+ * Do NOT duplicate this list in any other file.
+ */
+export const INTELLIGENCE_REJECTED_FIELDS = new Set([
+  'competitors',
+  'decisionMakers',
+  'budget',
+  'timeline',
+]);
+
+/**
+ * createAccountKnowledge — factory for the account knowledge object.
+ *
+ * Owns all durable account facts extracted from conversations.
+ * Distinct from intelligence (scoring signals) and memory (SDR personal notes).
+ *
+ * Sub-object shapes:
+ *   competitors[]      : { name, strength, context, source, sourceDate }
+ *   decisionMakers[]   : { name, role, authority, notes, source, sourceDate }
+ *   budget             : { status, amount, approvedBy, notes, source, sourceDate } | null
+ *   purchaseTimeline   : { targetDate, urgency, notes, source, sourceDate } | null
+ *   currentTools[]     : { name, category, source, sourceDate }
+ *   businessGoals[]    : { goal, source, sourceDate }
+ *   recurringObjections[]: { objection, occurrences, firstSeen, lastSeen, resolved, response }
+ *
+ * source values: 'call_note' | 'transcript' | 'sdr_manual' | 'migrated'
+ * authority values: 'primary' | 'influencer' | 'gatekeeper' | 'unknown'
+ * strength values:  'stronger' | 'weaker' | 'unknown'
+ * budget.status:    'confirmed' | 'exploring' | 'no_budget' | 'unknown'
+ * purchaseTimeline.urgency: 'immediate' | 'this_quarter' | 'next_quarter' | 'exploring' | 'unknown'
+ *
+ * Metadata fields (never injected into prompt context):
+ *   lastExtractedFrom : activityId of the conversation that last contributed
+ *   lastUpdated       : ISO timestamp
+ *   extractionCount   : number of conversations that have contributed
+ */
+export function createAccountKnowledge(overrides = {}) {
+  return {
+    competitors:          [],
+    decisionMakers:       [],
+    budget:               null,
+    purchaseTimeline:     null,
+    currentTools:         [],
+    businessGoals:        [],
+    recurringObjections:  [],
+    lastExtractedFrom:    null,
+    lastUpdated:          null,
+    extractionCount:      0,
+    ...overrides,
+  };
+}
+
+/**
+ * mergeAccountKnowledge — pure merge function for accountKnowledge patches.
+ *
+ * Rules:
+ *   Arrays   : deduplicate by identity key (name/goal/objection), never replace.
+ *              recurringObjections increments occurrences on match.
+ *   budget   : replace entirely when patch.budget is non-null (single state per account).
+ *   purchaseTimeline : replace entirely when patch.purchaseTimeline is non-null.
+ *   metadata : lastUpdated always set to now; extractionCount always incremented.
+ *
+ * Idempotent: calling twice with the same patch produces the same result as once.
+ * Pure: does not mutate either argument. Returns a new object.
+ */
+export function mergeAccountKnowledge(existing, patch) {
+  const now = new Date().toISOString();
+
+  // ── competitors — dedupe by name (case-insensitive) ──
+  const mergedCompetitors = [...(existing.competitors || [])];
+  for (const c of (patch.competitors || [])) {
+    const key = c.name?.toLowerCase().trim();
+    if (!key) continue;
+    const idx = mergedCompetitors.findIndex(e => e.name?.toLowerCase().trim() === key);
+    if (idx === -1) {
+      mergedCompetitors.push(c);
+    } else {
+      // Update context/strength if the new entry provides richer info
+      mergedCompetitors[idx] = {
+        ...mergedCompetitors[idx],
+        strength: c.strength && c.strength !== 'unknown' ? c.strength : mergedCompetitors[idx].strength,
+        context:  c.context  || mergedCompetitors[idx].context,
+      };
+    }
+  }
+
+  // ── decisionMakers — dedupe by name (case-insensitive) ──
+  const mergedDMs = [...(existing.decisionMakers || [])];
+  for (const dm of (patch.decisionMakers || [])) {
+    const key = dm.name?.toLowerCase().trim();
+    if (!key) continue;
+    const idx = mergedDMs.findIndex(e => e.name?.toLowerCase().trim() === key);
+    if (idx === -1) {
+      mergedDMs.push(dm);
+    } else {
+      mergedDMs[idx] = {
+        ...mergedDMs[idx],
+        role:      dm.role      || mergedDMs[idx].role,
+        authority: dm.authority && dm.authority !== 'unknown' ? dm.authority : mergedDMs[idx].authority,
+        notes:     dm.notes     || mergedDMs[idx].notes,
+      };
+    }
+  }
+
+  // ── currentTools — dedupe by name (case-insensitive) ──
+  const mergedTools = [...(existing.currentTools || [])];
+  for (const t of (patch.currentTools || [])) {
+    const key = t.name?.toLowerCase().trim();
+    if (!key) continue;
+    if (!mergedTools.find(e => e.name?.toLowerCase().trim() === key)) {
+      mergedTools.push(t);
+    }
+  }
+
+  // ── businessGoals — dedupe by goal string (case-insensitive) ──
+  const mergedGoals = [...(existing.businessGoals || [])];
+  for (const g of (patch.businessGoals || [])) {
+    const key = g.goal?.toLowerCase().trim();
+    if (!key) continue;
+    if (!mergedGoals.find(e => e.goal?.toLowerCase().trim() === key)) {
+      mergedGoals.push(g);
+    }
+  }
+
+  // ── recurringObjections — dedupe by objection string; increment occurrences on match ──
+  const mergedObjections = [...(existing.recurringObjections || [])];
+  for (const o of (patch.recurringObjections || [])) {
+    const key = o.objection?.toLowerCase().trim();
+    if (!key) continue;
+    const idx = mergedObjections.findIndex(e => e.objection?.toLowerCase().trim() === key);
+    if (idx === -1) {
+      mergedObjections.push({ ...o, occurrences: o.occurrences || 1, firstSeen: o.firstSeen || now, lastSeen: now });
+    } else {
+      mergedObjections[idx] = {
+        ...mergedObjections[idx],
+        occurrences: (mergedObjections[idx].occurrences || 1) + 1,
+        lastSeen:    now,
+        resolved:    o.resolved !== undefined ? o.resolved : mergedObjections[idx].resolved,
+        response:    o.response || mergedObjections[idx].response,
+      };
+    }
+  }
+
+  return {
+    competitors:         mergedCompetitors,
+    decisionMakers:      mergedDMs,
+    budget:              patch.budget            !== undefined ? patch.budget            : existing.budget,
+    purchaseTimeline:    patch.purchaseTimeline   !== undefined ? patch.purchaseTimeline   : existing.purchaseTimeline,
+    currentTools:        mergedTools,
+    businessGoals:       mergedGoals,
+    recurringObjections: mergedObjections,
+    lastExtractedFrom:   patch.lastExtractedFrom !== undefined ? patch.lastExtractedFrom : existing.lastExtractedFrom,
+    lastUpdated:         now,
+    extractionCount:     (existing.extractionCount || 0) + 1,
+  };
+}
+
+/**
+ * createIntelligence — factory for the intelligence object.
+ *
+ * OWNERSHIP — Phase 7B (Option C Hybrid Model):
+ *   INTELLIGENCE owns (scoring + signal layer):
+ *     buyingSignals, objections, painPoints, leadTemperature,
+ *     meetingProbability, aiRecommendation
+ *
+ *   ACCOUNT KNOWLEDGE owns (account fact layer — see createAccountKnowledge):
+ *     competitors, decisionMakers, budget, purchaseTimeline,
+ *     currentTools, businessGoals, recurringObjections
+ *
+ * @deprecated fields below are retained as read-only fallbacks for leads
+ * that pre-date Phase 7B migration. Do NOT write to them. Use
+ * updateAccountKnowledge() instead. See INTELLIGENCE_REJECTED_FIELDS.
  */
 export function createIntelligence(overrides = {}) {
   return {
     summary:                    '',
     painPoints:                 [],
     objections:                 [],
-    competitors:                [],
     buyingSignals:              [],
-    decisionMakers:             [],
-    budget:                     '',
-    timeline:                   '',
     preferredCommunicationStyle:'',
     leadTemperature:            'Cold',
     meetingProbability:         0,
@@ -83,16 +258,92 @@ export function createIntelligence(overrides = {}) {
     insightVersion:   0,
     lastAiUpdate:     null,
 
+    // ── Deprecated — Phase 7B ──────────────────────────────────────────────
+    // These fields have migrated to accountKnowledge.
+    // Retained here as empty defaults for backward-compat reads on old leads.
+    // updateIntelligence() rejects writes to these fields.
+    // See INTELLIGENCE_REJECTED_FIELDS for the authoritative list.
+    competitors:    [],   // @deprecated → accountKnowledge.competitors
+    decisionMakers: [],   // @deprecated → accountKnowledge.decisionMakers
+    budget:         '',   // @deprecated → accountKnowledge.budget
+    timeline:       '',   // @deprecated → accountKnowledge.purchaseTimeline
+
     ...overrides,
   };
 }
 
 /**
- * migrateLead — upgrades a flat v3 lead to the v4 schema
- * Non-destructive: preserves all existing fields
+ * migrateLead — upgrades a flat v3 lead to the v4 schema, then to Phase 7B.
+ * Non-destructive: preserves all existing fields.
+ *
+ * Migration gates:
+ *   _v4 absent        → run full v3→v4 migration + Phase 7B bootstrap
+ *   _v4 present,
+ *   accountKnowledge
+ *   absent            → run Phase 7B bootstrap only (v4 lead pre-dating Phase 7B)
+ *   both present      → no-op, already fully migrated
  */
 export function migrateLead(lead) {
-  if (lead._v4) return lead; // already migrated
+  // ── Phase 7B bootstrap — runs on all _v4 leads that pre-date Phase 7B ──
+  // Promotes existing intelligence fields to accountKnowledge without losing data.
+  if (lead._v4 && !lead.accountKnowledge) {
+    const existingIntel  = lead.intelligence || {};
+    const migrationDate  = existingIntel.lastUpdated || new Date().toISOString();
+
+    const bootstrapped = createAccountKnowledge({
+      // competitors[] — promote string array to structured objects
+      competitors: (existingIntel.competitors || [])
+        .filter(Boolean)
+        .map(name => ({
+          name,
+          strength:   'unknown',
+          context:    '',
+          source:     'migrated',
+          sourceDate: migrationDate,
+        })),
+
+      // decisionMakers[] — promote string array to structured objects
+      decisionMakers: (existingIntel.decisionMakers || [])
+        .filter(Boolean)
+        .map(name => ({
+          name,
+          role:       '',
+          authority:  'unknown',
+          notes:      '',
+          source:     'migrated',
+          sourceDate: migrationDate,
+        })),
+
+      // budget — preserve legacy free-text string as notes; do not attempt parsing
+      // Revision 2: bootstrap as notes-only to avoid losing historical visibility.
+      budget: existingIntel.budget
+        ? {
+            status:     'unknown',
+            amount:     '',
+            approvedBy: '',
+            notes:      existingIntel.budget,
+            source:     'migrated',
+            sourceDate: migrationDate,
+          }
+        : null,
+
+      // purchaseTimeline — preserve legacy free-text string as notes; do not parse
+      // Revision 2: same rationale as budget — preserve without inventing structure.
+      purchaseTimeline: existingIntel.timeline
+        ? {
+            targetDate: '',
+            urgency:    'unknown',
+            notes:      existingIntel.timeline,
+            source:     'migrated',
+            sourceDate: migrationDate,
+          }
+        : null,
+    });
+
+    return { ...lead, accountKnowledge: bootstrapped };
+  }
+
+  if (lead._v4) return lead; // already fully migrated
 
   // Build intelligence from existing scattered data
   const competitors = [];
@@ -157,6 +408,18 @@ export function migrateLead(lead) {
       nextBestAction:    lead.nextAction || '',
       lastConversation:  lead.aeNotes ? 'See AE Notes for context.' : '',
       lastUpdated:       new Date().toISOString(),
+    }),
+
+    // Phase 7B: bootstrap accountKnowledge from v3 data at the same time as _v4 migration
+    accountKnowledge: createAccountKnowledge({
+      competitors: competitors.map(name => ({
+        name, strength: 'unknown', context: '',
+        source: 'migrated', sourceDate: new Date().toISOString(),
+      })),
+      decisionMakers: (lead.contact ? [lead.contact] : []).map(name => ({
+        name, role: '', authority: 'unknown', notes: '',
+        source: 'migrated', sourceDate: new Date().toISOString(),
+      })),
     }),
 
     // unified activities array
