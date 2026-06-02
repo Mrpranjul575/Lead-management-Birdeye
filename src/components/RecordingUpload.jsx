@@ -104,17 +104,23 @@ export default function RecordingUpload({ lead, onClose }) {
       });
 
       // Phase 7B: route competitors and decisionMakers to accountKnowledge
+      // Phase 7C-1: source === 'transcript' → reviewStatus: 'pending' (AI-extracted,
+      // requires SDR review before entering prompt context).
       const akPatch = {};
       if (intel.competitors?.length) {
         akPatch.competitors = intel.competitors.map(name => ({
           name, strength: 'unknown', context: '',
           source: 'transcript', sourceDate: new Date().toISOString(),
+          reviewStatus: 'pending',
+          reviewedAt:   null,
         }));
       }
       if (intel.decisionMakers?.length) {
         akPatch.decisionMakers = intel.decisionMakers.map(name => ({
           name, role: '', authority: 'unknown', notes: '',
           source: 'transcript', sourceDate: new Date().toISOString(),
+          reviewStatus: 'pending',
+          reviewedAt:   null,
         }));
       }
       if (Object.keys(akPatch).length) {

@@ -150,12 +150,16 @@ function CallNotesModal({ lead, onClose }) {
       if (Object.keys(intelPatch).length) updateIntelligence(lead.id, intelPatch);
 
       // ── accountKnowledge patch — account fact fields (Phase 7B) ──
+      // Phase 7C-1: source === 'call_note' → reviewStatus: 'confirmed' (SDR-authored
+      // text — trusted immediately, no review gate required).
       const akPatch = {};
       if (notes.toLowerCase().includes('competitor')) {
         const comp = notes.match(/competitor[:\s]+([^\n.]+)/i)?.[1]?.trim();
         if (comp) akPatch.competitors = [{
           name: comp, strength: 'unknown', context: '',
           source: 'call_note', sourceDate: new Date().toISOString(),
+          reviewStatus: 'confirmed',
+          reviewedAt:   new Date().toISOString(),
         }];
       }
       if (notes.toLowerCase().includes('budget')) {
@@ -163,6 +167,8 @@ function CallNotesModal({ lead, onClose }) {
         if (budgetText) akPatch.budget = {
           status: 'exploring', amount: budgetText, approvedBy: '',
           notes: '', source: 'call_note', sourceDate: new Date().toISOString(),
+          reviewStatus: 'confirmed',
+          reviewedAt:   new Date().toISOString(),
         };
       }
       if (Object.keys(akPatch).length) {

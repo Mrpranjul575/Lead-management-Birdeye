@@ -91,6 +91,14 @@ export const INTELLIGENCE_REJECTED_FIELDS = new Set([
  * budget.status:    'confirmed' | 'exploring' | 'no_budget' | 'unknown'
  * purchaseTimeline.urgency: 'immediate' | 'this_quarter' | 'next_quarter' | 'exploring' | 'unknown'
  *
+ * Phase 7C-1 — reviewStatus per sub-object:
+ *   'pending'   — extracted by AI (source: transcript). Excluded from prompt context.
+ *                 Awaiting SDR review.
+ *   'confirmed' — accepted by SDR, authored by SDR, or migrated. Included in prompts.
+ *   'dismissed' — rejected by SDR. Excluded from prompts.
+ *   absent      — treated as 'confirmed' (backward compat for pre-7C items).
+ *   Use isConfirmed(item) — do NOT inline this check.
+ *
  * Metadata fields (never injected into prompt context):
  *   lastExtractedFrom : activityId of the conversation that last contributed
  *   lastUpdated       : ISO timestamp
@@ -110,6 +118,26 @@ export function createAccountKnowledge(overrides = {}) {
     extractionCount:      0,
     ...overrides,
   };
+}
+
+/**
+ * isConfirmed — single authoritative check for whether an accountKnowledge
+ * sub-object should be treated as trusted (visible in prompts, shown as
+ * confirmed in UI).
+ *
+ * Rules:
+ *   reviewStatus === 'confirmed'  → true
+ *   reviewStatus absent/undefined → true  (backward compat: pre-7C items)
+ *   reviewStatus === 'pending'    → false (AI-extracted, awaiting SDR review)
+ *   reviewStatus === 'dismissed'  → false (SDR-rejected)
+ *   item is null/undefined        → false
+ *
+ * Use this helper everywhere. Do NOT inline the condition in callers.
+ * Referenced by: buildLeadContext() (prompts.js), AccountKnowledgeTab (Phase 7C-2).
+ */
+export function isConfirmed(item) {
+  if (!item) return false;
+  return item.reviewStatus !== 'pending' && item.reviewStatus !== 'dismissed';
 }
 
 /**
