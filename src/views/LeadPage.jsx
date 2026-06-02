@@ -18,6 +18,7 @@ import ActionCenter from '../components/ActionCenter';
 import NextBestStep from '../components/NextBestStep';
 import FollowUpModal from '../components/FollowUpModal';
 import RecordingUpload from '../components/RecordingUpload';
+import AccountKnowledgeTab, { countPendingAK } from '../components/AccountKnowledgeTab';
 
 /* ─── Shared score ring ─────────────────────────────── */
 function ScoreRing({ score, size=52 }) {
@@ -363,18 +364,19 @@ function Bullet({ text, positive }) {
    LEAD TABS
 ═══════════════════════════════════════════════════════════════ */
 const TABS = [
-  { id:'overview',       label:'Overview'        },
-  { id:'ae_notes',       label:'AE Notes'        },
-  { id:'ai_intelligence',label:'AI Intelligence' },
-  { id:'timeline',       label:'Timeline'        },
-  { id:'activities',     label:'Activities'      },
-  { id:'emails',         label:'Emails'          },
-  { id:'sms',            label:'SMS'             },
-  { id:'linkedin',       label:'LinkedIn'        },
-  { id:'voicemails',     label:'Voicemails'      },
-  { id:'followups',      label:'Follow Ups'      },
-  { id:'memory',         label:'AI Memory'       },
-  { id:'cadence',        label:'Cadence'         },
+  { id:'overview',         label:'Overview'          },
+  { id:'ae_notes',         label:'AE Notes'          },
+  { id:'ai_intelligence',  label:'AI Intelligence'   },
+  { id:'account_knowledge',label:'Account Knowledge' },
+  { id:'timeline',         label:'Timeline'          },
+  { id:'activities',       label:'Activities'        },
+  { id:'emails',           label:'Emails'            },
+  { id:'sms',              label:'SMS'               },
+  { id:'linkedin',         label:'LinkedIn'          },
+  { id:'voicemails',       label:'Voicemails'        },
+  { id:'followups',        label:'Follow Ups'        },
+  { id:'memory',           label:'AI Memory'         },
+  { id:'cadence',          label:'Cadence'           },
 ];
 
 /* ─── Tab: Overview ─── */
@@ -1395,11 +1397,16 @@ export default function LeadPage() {
       <div style={{ display:'flex', overflowX:'auto', borderBottom:`1px solid ${B1}`, background:'var(--s1)', borderRadius:'12px 12px 0 0', padding:'0 4px' }}>
         {TABS.map(({ id, label })=>{
           const active=tab===id;
+          // Phase 7C-2D: account_knowledge badge shows pending AK fact count (amber)
+          // activities / followups badges use existing blue pill style
+          const isAKTab = id === 'account_knowledge';
+          const akPending = isAKTab ? countPendingAK(lead.accountKnowledge) : 0;
           const badge = id==='activities' ? (lead.activities||[]).length : id==='followups' ? (lead.followUps||[]).filter(f=>!f.done).length : 0;
           return (
             <button key={id} onClick={()=>setTab(id)} style={{ padding:'11px 14px', border:'none', background:'transparent', borderBottom:active?'2px solid var(--p)':'2px solid transparent', color:active?'var(--p-glow)':T2, fontSize:11, fontWeight:active?600:400, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap', transition:'color 0.12s', marginBottom:'-1px', display:'flex', alignItems:'center', gap:5 }}>
               {label}
               {badge>0 && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:99, background:'rgba(91,63,200,0.2)', color:'#7C5CE8' }}>{badge}</span>}
+              {isAKTab && akPending>0 && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:99, background:'rgba(245,158,11,0.2)', color:'#F59E0B' }}>{akPending}</span>}
             </button>
           );
         })}
@@ -1410,6 +1417,7 @@ export default function LeadPage() {
         {tab==='overview'        && <OverviewTab    lead={lead} onCallNotes={()=>setCallNotesOpen(true)} onPrepareCall={()=>setPrepareOpen(true)} onFollowUp={()=>setFollowUpOpen(true)} onRecording={()=>setRecordingOpen(true)} onTabChange={setTab}/>}
         {tab==='ae_notes'        && <AENotesTab     lead={lead}/>}
         {tab==='ai_intelligence' && <AIIntelTab     lead={lead}/>}
+        {tab==='account_knowledge' && <AccountKnowledgeTab lead={lead}/>}
         {tab==='timeline'        && <TimelineTab    lead={lead}/>}
         {tab==='activities'      && <ActivitiesTab  lead={lead}/>}
         {tab==='emails'          && <ChannelTab     lead={lead} channel="Email"/>}
