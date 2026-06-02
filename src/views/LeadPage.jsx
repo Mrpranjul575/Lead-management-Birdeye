@@ -1,0 +1,1081 @@
+import { useState, useRef, useCallback } from 'react';
+import {
+  ArrowLeft, Mail, Phone, Globe, MapPin, Zap, Copy,
+  ExternalLink, Send, MoreHorizontal, CheckCircle2, Circle,
+  Brain, FileText, Activity, Clock, Star, ChevronRight,
+  Calendar, Plus, X, Upload, Mic, MessageSquare, Link2,
+  Flame, TrendingUp, Target, Eye, Lightbulb, Edit3,
+  PhoneCall, Video, AlignLeft, Paperclip, ChevronDown,
+  AlertCircle, ThumbsUp, Sparkles
+} from 'lucide-react';
+import { useApp } from '../context/AppContext';
+import { STAGES_ALL, STAGE_STYLE } from '../constants/stages';
+import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity } from '../data/schema';
+import NextBestStep from '../components/NextBestStep';
+import FollowUpModal from '../components/FollowUpModal';
+import RecordingUpload from '../components/RecordingUpload';
+
+/* ─── Shared score ring ─────────────────────────────── */
+function ScoreRing({ score, size=52 }) {
+  const color = score>=80?'#10B981':score>=65?'#F59E0B':'#EF4444';
+  const r=(size/2)-4, circ=2*Math.PI*r, cx=size/2;
+  return (
+    <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}>
+      <svg width={size} height={size} style={{ position:'absolute', inset:0 }}>
+        <circle cx={cx} cy={cx} r={r} fill="none" stroke="var(--b1)" strokeWidth="3"/>
+        <circle cx={cx} cy={cx} r={r} fill="none" stroke={color} strokeWidth="3"
+          strokeDasharray={`${(score/100)*circ} ${circ}`}
+          strokeLinecap="round" transform={`rotate(-90 ${cx} ${cx})`}/>
+      </svg>
+      <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center',
+        justifyContent:'center', fontSize:size>40?13:10, fontWeight:700, color }}>{score}</span>
+    </div>
+  );
+}
+
+/* ─── Temperature badge ─────────────────────────────── */
+function TempBadge({ temp }) {
+  const map = {
+    'Hot':       { color:'#EF4444', icon:'🔥', glow:'rgba(239,68,68,0.2)'  },
+    'On Fire':   { color:'#F97316', icon:'🔥', glow:'rgba(249,115,22,0.2)' },
+    'Warm':      { color:'#F59E0B', icon:'🌤', glow:'rgba(245,158,11,0.15)' },
+    'Cold':      { color:'#60A5FA', icon:'❄️', glow:'rgba(96,165,250,0.1)'  },
+    'Ice Cold':  { color:'#93C5FD', icon:'🧊', glow:'rgba(147,197,253,0.1)' },
+  };
+  const m = map[temp] || map['Cold'];
+  return (
+    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+      <span style={{ fontSize:28 }}>{m.icon}</span>
+      <span style={{ fontSize:18, fontWeight:700, color:m.color,
+        textShadow:`0 0 20px ${m.glow}` }}>{temp}</span>
+    </div>
+  );
+}
+
+/* ─── Meeting probability gauge ─────────────────────── */
+function ProbGauge({ pct }) {
+  const color = pct>=70?'#10B981':pct>=40?'#F59E0B':'#EF4444';
+  const r=38, circ=2*Math.PI*r, half=circ/2;
+  const dash = (pct/100)*half;
+  return (
+    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+      <div style={{ position:'relative', width:96, height:52 }}>
+        <svg width="96" height="52" viewBox="0 0 96 52">
+          <path d="M 8 48 A 40 40 0 0 1 88 48" fill="none" stroke="var(--b1)" strokeWidth="7" strokeLinecap="round"/>
+          <path d="M 8 48 A 40 40 0 0 1 88 48" fill="none" stroke={color} strokeWidth="7"
+            strokeLinecap="round" strokeDasharray={`${dash} ${half}`}/>
+        </svg>
+        <div style={{ position:'absolute', bottom:2, left:0, right:0, textAlign:'center' }}>
+          <span style={{ fontSize:20, fontWeight:700, color, fontFamily:'JetBrains Mono,monospace' }}>{pct}%</span>
+        </div>
+      </div>
+      <span style={{ fontSize:10, color:'var(--t2)', fontWeight:600 }}>{pct>=70?'High':pct>=40?'Medium':'Low'}</span>
+    </div>
+  );
+}
+
+/* ─── Activity icon helper ──────────────────────────── */
+function ActivityIcon({ type, outcome }) {
+  const map = {
+    'Call':          { icon:PhoneCall,    color:'#10B981', bg:'rgba(16,185,129,0.1)'  },
+    'Email':         { icon:Mail,         color:'#7C5CE8', bg:'rgba(91,63,200,0.1)'   },
+    'SMS':           { icon:MessageSquare,color:'#3B82F6', bg:'rgba(59,130,246,0.1)'  },
+    'LinkedIn':      { icon:Link2,        color:'#0A66C2', bg:'rgba(10,102,194,0.1)'  },
+    'Voicemail':     { icon:Mic,          color:'#F59E0B', bg:'rgba(245,158,11,0.1)'  },
+    'Meeting':       { icon:Video,        color:'#EC4899', bg:'rgba(236,72,153,0.1)'  },
+    'Note':          { icon:FileText,     color:'var(--t2)', bg:'var(--s3)'           },
+    'Follow Up':     { icon:Calendar,     color:'#7C5CE8', bg:'rgba(91,63,200,0.1)'   },
+    'Status Change': { icon:TrendingUp,   color:'#F59E0B', bg:'rgba(245,158,11,0.1)'  },
+    'AI Generation': { icon:Sparkles,     color:'#7C5CE8', bg:'rgba(91,63,200,0.1)'   },
+  };
+  const m = map[type] || map['Note'];
+  const Icon = m.icon;
+  return (
+    <div style={{ width:30, height:30, borderRadius:8, background:m.bg,
+      display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+      <Icon size={14} color={m.color}/>
+    </div>
+  );
+}
+
+function outcomeColor(outcome) {
+  const map = {
+    'Positive':'#10B981', 'Replied':'#10B981', 'Connected':'#10B981',
+    'Sent':'#3B82F6',     'Neutral':'#8B949E',
+    'No Answer':'#F59E0B','Negative':'#EF4444', 'Bounced':'#EF4444',
+  };
+  return map[outcome] || 'var(--t2)';
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CALL NOTES MODAL
+═══════════════════════════════════════════════════════════════ */
+function CallNotesModal({ lead, onClose }) {
+  const { addActivity, updateIntelligence, updateLead } = useApp();
+  const [outcome,   setOutcome]  = useState('Connected');
+  const [notes,     setNotes]    = useState('');
+  const [nextStep,  setNextStep] = useState('');
+  const [duration,  setDuration] = useState('');
+  const [sentiment, setSentiment]= useState('Neutral');
+  const [saved,     setSaved]    = useState(false);
+
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const inp = { style:{ width:'100%', padding:'9px 12px', borderRadius:8, border:`1px solid ${B1}`, background:'var(--s2)', color:T1, fontSize:12, fontFamily:'inherit', outline:'none', transition:'border-color 0.15s' }, onFocus:e=>e.target.style.borderColor='#5B3FC8', onBlur:e=>e.target.style.borderColor=B1 };
+
+  const OUTCOMES  = ['Connected','No Answer','Left Voicemail','Callback Requested','Not Interested'];
+  const SENTIMENTS= ['Positive','Neutral','Negative','Very Positive','Very Negative'];
+
+  const handleSave = () => {
+    const summary = `Call ${outcome} — ${duration ? duration+'min' : ''} — ${sentiment}`;
+    addActivity(lead.id, 'Call', summary, { outcome, notes, nextStep, duration, sentiment, content: notes });
+    if (notes) {
+      // Parse notes for intelligence updates
+      const intel = {};
+      if (notes.toLowerCase().includes('budget'))     intel.budget = notes.match(/budget[:\s]+([^\n.]+)/i)?.[1]?.trim() || '';
+      if (notes.toLowerCase().includes('competitor')) {
+        const comp = notes.match(/competitor[:\s]+([^\n.]+)/i)?.[1]?.trim();
+        if (comp) intel.competitors = [...(lead.intelligence?.competitors||[]), comp].filter((v,i,a)=>a.indexOf(v)===i);
+      }
+      if (notes.toLowerCase().includes('objection'))  intel.objections = [...(lead.intelligence?.objections||[]), notes.match(/objection[:\s]+([^\n.]+)/i)?.[1]?.trim()].filter(Boolean);
+      if (notes.toLowerCase().includes('interested') || sentiment==='Positive' || sentiment==='Very Positive') {
+        intel.buyingSignals = [...(lead.intelligence?.buyingSignals||[]), `${outcome} on ${new Date().toLocaleDateString()}`];
+      }
+      if (nextStep) intel.nextBestAction = nextStep;
+      if (notes)    intel.lastConversation = notes;
+      if (Object.keys(intel).length) updateIntelligence(lead.id, intel);
+    }
+    if (nextStep) updateLead(lead.id, { nextAction: nextStep });
+    setSaved(true);
+    setTimeout(onClose, 1000);
+  };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:299, background:'rgba(0,0,0,0.6)', backdropFilter:'blur(4px)' }}/>
+      <div style={{ position:'fixed', top:'50%', left:'50%', transform:'translate(-50%,-50%)', width:500, zIndex:300, borderRadius:16, background:'var(--s1)', border:'1px solid var(--b1)', boxShadow:'0 24px 64px rgba(0,0,0,0.5)', fontFamily:'Inter,system-ui,sans-serif', overflow:'hidden' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:'1px solid var(--b1)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:32, height:32, borderRadius:8, background:'rgba(16,185,129,0.15)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <PhoneCall size={15} color="#10B981"/>
+            </div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:700, color:T1 }}>Add Call Notes</div>
+              <div style={{ fontSize:11, color:T2 }}>{lead.business}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ padding:5, border:'none', background:'transparent', cursor:'pointer', color:T2 }}><X size={15}/></button>
+        </div>
+        <div style={{ padding:'20px', display:'flex', flexDirection:'column', gap:14 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 100px', gap:10 }}>
+            <div>
+              <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:5 }}>Outcome</div>
+              <select value={outcome} onChange={e=>setOutcome(e.target.value)} style={{ ...inp.style, appearance:'none' }}>
+                {OUTCOMES.map(o=><option key={o}>{o}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:5 }}>Sentiment</div>
+              <select value={sentiment} onChange={e=>setSentiment(e.target.value)} style={{ ...inp.style, appearance:'none' }}>
+                {SENTIMENTS.map(s=><option key={s}>{s}</option>)}
+              </select>
+            </div>
+            <div>
+              <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:5 }}>Duration</div>
+              <input placeholder="mins" value={duration} onChange={e=>setDuration(e.target.value)} {...inp}/>
+            </div>
+          </div>
+          <div>
+            <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:5 }}>Call Notes</div>
+            <textarea value={notes} onChange={e=>setNotes(e.target.value)} rows={5}
+              placeholder="What was discussed? Pain points, objections, competitors, buying signals, anything important…"
+              style={{ ...inp.style, resize:'none', lineHeight:1.7 }} onFocus={inp.onFocus} onBlur={inp.onBlur}/>
+          </div>
+          <div>
+            <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:5 }}>Next Step</div>
+            <input value={nextStep} onChange={e=>setNextStep(e.target.value)} placeholder="e.g. Send competitor comparison, Schedule demo…" {...inp}/>
+          </div>
+        </div>
+        <div style={{ display:'flex', gap:10, padding:'14px 20px', borderTop:'1px solid var(--b1)', background:'rgba(0,0,0,0.15)' }}>
+          <button onClick={onClose} style={{ flex:1, padding:'9px', borderRadius:9, border:'1px solid var(--b1)', background:'transparent', color:T2, fontSize:12, cursor:'pointer', fontFamily:'inherit' }}>Cancel</button>
+          <button onClick={handleSave} style={{ flex:2, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'9px', borderRadius:9, border:'none', background:saved?'#10B981':'#5B3FC8', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', transition:'background 0.2s' }}>
+            {saved ? <><CheckCircle2 size={13}/> Saved & Updated!</> : <><PhoneCall size={13}/> Save Call Notes</>}
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PREPARE FOR CALL DRAWER
+═══════════════════════════════════════════════════════════════ */
+function PrepareCallDrawer({ lead, onClose }) {
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const intel = lead.intelligence || {};
+
+  const questions = [
+    `What's holding you back from solving your ${(lead.intent||'AI visibility').toLowerCase()} issue today?`,
+    `Who else is involved in this decision at ${lead.business}?`,
+    intel.competitors?.length ? `I saw you're competing with ${intel.competitors[0]} — how do you typically differentiate?` : `Who do you see as your biggest competitor right now?`,
+    `If we could solve your ${(lead.intent||'review').toLowerCase()} problem in 30 days, what would that mean for your business?`,
+    `What's your timeline for making a decision?`,
+  ];
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:199, background:'rgba(0,0,0,0.4)' }}/>
+      <div style={{ position:'fixed', top:0, right:0, bottom:0, width:420, zIndex:200, background:'var(--s1)', borderLeft:'1px solid var(--b1)', boxShadow:'-8px 0 40px rgba(0,0,0,0.4)', overflow:'auto', fontFamily:'Inter,system-ui,sans-serif' }}>
+        {/* Header */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'18px 20px', borderBottom:`1px solid ${B1}`, background:'rgba(91,63,200,0.08)' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ width:34, height:34, borderRadius:9, background:'rgba(91,63,200,0.18)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <Sparkles size={16} color="#7C5CE8"/>
+            </div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:700, color:T1 }}>Prepare For Call</div>
+              <div style={{ fontSize:11, color:T2 }}>{lead.business}</div>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ padding:5, border:'none', background:'transparent', cursor:'pointer', color:T2 }}><X size={15}/></button>
+        </div>
+
+        <div style={{ padding:'20px', display:'flex', flexDirection:'column', gap:16 }}>
+          {/* Last conversation */}
+          {intel.lastConversation && (
+            <Section title="Last Conversation" icon={Clock} color="#7C5CE8">
+              <p style={{ fontSize:12, color:T1, lineHeight:1.7, margin:0 }}>{intel.lastConversation}</p>
+            </Section>
+          )}
+
+          {/* Pain points */}
+          <Section title="Pain Points" icon={AlertCircle} color="#EF4444">
+            {intel.painPoints?.length
+              ? intel.painPoints.map((p,i)=><Bullet key={i} text={p}/>)
+              : <span style={{ fontSize:12, color:T2 }}>None recorded yet</span>}
+          </Section>
+
+          {/* Competitors */}
+          <Section title="Competitors" icon={Target} color="#F59E0B">
+            {intel.competitors?.length
+              ? intel.competitors.map((c,i)=><Bullet key={i} text={c}/>)
+              : <span style={{ fontSize:12, color:T2 }}>None recorded yet</span>}
+          </Section>
+
+          {/* Objections */}
+          <Section title="Objections" icon={X} color="#F472B6">
+            {intel.objections?.length
+              ? intel.objections.map((o,i)=><Bullet key={i} text={o}/>)
+              : <span style={{ fontSize:12, color:T2 }}>None recorded yet</span>}
+          </Section>
+
+          {/* Buying signals */}
+          <Section title="Buying Signals" icon={ThumbsUp} color="#10B981">
+            {intel.buyingSignals?.length
+              ? intel.buyingSignals.map((b,i)=><Bullet key={i} text={b} positive/>)
+              : <span style={{ fontSize:12, color:T2 }}>None recorded yet</span>}
+          </Section>
+
+          {/* Goal + CTA */}
+          <Section title="Recommended CTA" icon={Zap} color="#7C5CE8">
+            <p style={{ fontSize:12, color:T1, lineHeight:1.6, margin:0, fontWeight:500 }}>
+              {intel.nextBestAction || lead.nextAction || 'Schedule a demo or send competitor comparison'}
+            </p>
+          </Section>
+
+          {/* Suggested questions */}
+          <Section title="Suggested Questions" icon={Brain} color="#3B82F6">
+            {questions.map((q,i)=>(
+              <div key={i} style={{ display:'flex', gap:8, padding:'8px 10px', borderRadius:8, background:'var(--bg)', border:'1px solid var(--b1)', marginBottom:6 }}>
+                <span style={{ fontSize:11, color:'#7C5CE8', fontWeight:700, flexShrink:0, marginTop:1 }}>Q{i+1}</span>
+                <span style={{ fontSize:12, color:T1, lineHeight:1.5 }}>{q}</span>
+              </div>
+            ))}
+          </Section>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Section({ title, icon:Icon, color, children }) {
+  return (
+    <div style={{ background:'var(--bg)', border:'1px solid var(--b1)', borderRadius:10, padding:'12px 14px' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:10 }}>
+        <Icon size={13} color={color}/>
+        <span style={{ fontSize:11, fontWeight:700, color:'var(--t1)', textTransform:'uppercase', letterSpacing:'0.05em' }}>{title}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Bullet({ text, positive }) {
+  return (
+    <div style={{ display:'flex', alignItems:'flex-start', gap:7, marginBottom:5 }}>
+      <div style={{ width:5, height:5, borderRadius:'50%', background:positive?'#10B981':'var(--t2)', flexShrink:0, marginTop:5 }}/>
+      <span style={{ fontSize:12, color:'var(--t1)', lineHeight:1.5 }}>{text}</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LEAD TABS
+═══════════════════════════════════════════════════════════════ */
+const TABS = [
+  { id:'overview',       label:'Overview'        },
+  { id:'ae_notes',       label:'AE Notes'        },
+  { id:'ai_intelligence',label:'AI Intelligence' },
+  { id:'timeline',       label:'Timeline'        },
+  { id:'activities',     label:'Activities'      },
+  { id:'emails',         label:'Emails'          },
+  { id:'sms',            label:'SMS'             },
+  { id:'linkedin',       label:'LinkedIn'        },
+  { id:'voicemails',     label:'Voicemails'      },
+  { id:'followups',      label:'Follow Ups'      },
+  { id:'memory',         label:'AI Memory'       },
+  { id:'cadence',        label:'Cadence'         },
+];
+
+/* ─── Tab: Overview ─── */
+function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp }) {
+  const { openCopilot } = useApp();
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const intel = lead.intelligence || {};
+  const recentActivities = (lead.activities || []).slice(0, 4);
+
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:14 }}>
+
+      {/* AI Summary + Key Intelligence — spans 2 cols */}
+      <div style={{ gridColumn:'span 2', display:'flex', flexDirection:'column', gap:12 }}>
+
+        {/* AI Summary */}
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'16px' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:10 }}>AI Summary</div>
+          <p style={{ fontSize:12, color:T1, lineHeight:1.8, margin:0 }}>
+            {intel.summary || `${lead.business} is a ${lead.industry||'healthcare'} business in ${lead.city||'your area'}. Primary intent is ${lead.intent||'AI Visibility'}. AI Score: ${lead.aiScore}.`}
+          </p>
+          {intel.lastConversation && (
+            <>
+              <div style={{ fontSize:11, fontWeight:600, color:T2, marginTop:12, marginBottom:4 }}>Last Conversation:</div>
+              <p style={{ fontSize:12, color:T1, lineHeight:1.7, margin:0 }}>{intel.lastConversation}</p>
+            </>
+          )}
+          <div style={{ fontSize:11, fontWeight:600, color:T2, marginTop:12, marginBottom:4 }}>Next Best Action:</div>
+          <p style={{ fontSize:12, color:'#7C5CE8', lineHeight:1.6, margin:'0 0 12px' }}>{intel.nextBestAction || lead.nextAction || '—'}</p>
+          <button onClick={onPrepareCall} style={{
+            display:'flex', alignItems:'center', gap:6, padding:'8px 14px', borderRadius:8,
+            border:'none', background:'#5B3FC8', color:'#fff',
+            fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit',
+            boxShadow:'0 4px 12px rgba(91,63,200,0.35)', transition:'background 0.15s',
+          }}
+            onMouseEnter={e=>e.currentTarget.style.background='#4828B5'}
+            onMouseLeave={e=>e.currentTarget.style.background='#5B3FC8'}>
+            <Sparkles size={12}/> Prepare For Call
+          </button>
+        </div>
+
+        {/* Key Intelligence */}
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'16px' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:12 }}>Key Intelligence</div>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+            {[
+              { label:'Pain Points',    items:intel.painPoints,     color:'#F87171' },
+              { label:'Competitors',    items:intel.competitors,    color:'#F59E0B' },
+              { label:'Objections',     items:intel.objections,     color:'#F472B6' },
+              { label:'Buying Signals', items:intel.buyingSignals,  color:'#34D399' },
+            ].map(({ label, items, color })=>(
+              <div key={label}>
+                <div style={{ fontSize:11, fontWeight:600, color:T2, marginBottom:6 }}>{label}</div>
+                {(items||[]).length===0
+                  ? <span style={{ fontSize:11, color:'var(--t3)', fontStyle:'italic' }}>None logged</span>
+                  : (items||[]).slice(0,3).map((item,i)=>(
+                    <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:6, marginBottom:4 }}>
+                      <div style={{ width:5, height:5, borderRadius:'50%', background:color, flexShrink:0, marginTop:5 }}/>
+                      <span style={{ fontSize:11, color:T1, lineHeight:1.5 }}>{item}</span>
+                    </div>
+                  ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Activities — 1 col */}
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'16px', flex:1 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+            <span style={{ fontSize:11, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em' }}>Recent Activities</span>
+            <button style={{ fontSize:10, color:'#7C5CE8', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit' }}>View All</button>
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+            {recentActivities.length===0 ? (
+              <span style={{ fontSize:11, color:T2, fontStyle:'italic' }}>No activities yet</span>
+            ) : recentActivities.map((a,i)=>(
+              <div key={a.activityId||i} style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
+                <ActivityIcon type={a.type} outcome={a.outcome}/>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:T1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.summary}</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:6, marginTop:2 }}>
+                    <span style={{ fontSize:10, color:T2 }}>{new Date(a.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>
+                    {a.outcome && <span style={{ fontSize:10, fontWeight:600, color:outcomeColor(a.outcome) }}>{a.outcome}</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Next follow up */}
+        {(lead.followUps||[]).filter(f=>!f.done)[0] && (() => {
+          const fu = lead.followUps.filter(f=>!f.done)[0];
+          return (
+            <div style={{ background:'var(--bg)', border:'1px solid rgba(91,63,200,0.25)', borderRadius:12, padding:'12px 14px' }}>
+              <div style={{ fontSize:10, fontWeight:700, color:'#7C5CE8', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:8 }}>Next Follow Up</div>
+              <div style={{ fontSize:12, fontWeight:600, color:'var(--t1)', marginBottom:2 }}>{fu.display}</div>
+              {fu.notes && <div style={{ fontSize:11, color:T2 }}>{fu.notes}</div>}
+              <button onClick={()=>{}} style={{ marginTop:8, fontSize:10, color:'#7C5CE8', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit', padding:0 }}>View in Cadence</button>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* Metrics col — Meeting probability, Temperature, Pipeline stage */}
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+
+        {/* Pipeline stage */}
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'16px' }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:12 }}>Pipeline Stage</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:4 }}>
+            <div style={{ display:'flex', gap:2 }}>
+              {['New','Working','Hot','Demo','Closed'].map((s,i)=>{
+                const stageIdx = ['New','Contacted','Hot','Demo Booked','Converted'].indexOf(lead.stage);
+                const filled = i <= (stageIdx<0?0:stageIdx);
+                return <div key={s} style={{ flex:1, height:5, borderRadius:99, background:filled?'#5B3FC8':'var(--b1)', transition:'background 0.3s' }}/>;
+              })}
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between' }}>
+              {['New','Working','Hot','Demo','Closed'].map(s=>(
+                <span key={s} style={{ fontSize:9, color:s===lead.stage||s==='Working'&&lead.stage==='Contacted'?'#7C5CE8':'var(--t3)', fontWeight:s===lead.stage?700:400 }}>{s}</span>
+              ))}
+            </div>
+          </div>
+          <div style={{ marginTop:10, display:'inline-flex', alignItems:'center', gap:5, padding:'4px 10px', borderRadius:99, background:'rgba(91,63,200,0.15)', border:'1px solid rgba(91,63,200,0.3)' }}>
+            <span style={{ fontSize:11, fontWeight:600, color:'#7C5CE8' }}>{lead.stage}</span>
+          </div>
+        </div>
+
+        {/* Meeting probability */}
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'16px', display:'flex', flexDirection:'column', alignItems:'center' }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:10, alignSelf:'flex-start' }}>Meeting Probability</div>
+          <ProbGauge pct={intel.meetingProbability || 20}/>
+        </div>
+
+        {/* Lead temperature */}
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'16px', display:'flex', flexDirection:'column', alignItems:'center', gap:6 }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', alignSelf:'flex-start' }}>Lead Temperature</div>
+          <TempBadge temp={intel.leadTemperature || 'Cold'}/>
+        </div>
+      </div>
+
+      {/* Bottom row — Quick Actions, AI Copilot, Lead Memory, Files */}
+      <div style={{ gridColumn:'span 4', display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:14 }}>
+
+        {/* Quick Actions */}
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'14px' }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:10 }}>Quick Actions</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {[
+              { icon:PhoneCall,     label:'Add Call Notes',  action:onCallNotes },
+              { icon:Mail,          label:'Send Email',      action:()=>openCopilot('email',lead) },
+              { icon:Upload,        label:'Upload Recording',action:()=>setRecordingOpen(true) },
+              { icon:MessageSquare, label:'Log SMS',         action:()=>openCopilot('sms',lead) },
+              { icon:Plus,          label:'Add Note',        action:()=>setTab('memory') },
+              { icon:FileText,      label:'Create Task',     action:onFollowUp },
+            ].map(({ icon:Icon, label, action })=>(
+              <button key={label} onClick={action} style={{ display:'flex', alignItems:'center', gap:8, padding:'7px 10px', borderRadius:7, border:'1px solid var(--b1)', background:'transparent', cursor:'pointer', color:'var(--t1)', fontSize:11, fontFamily:'inherit', transition:'all 0.12s', textAlign:'left' }}
+                onMouseEnter={e=>{e.currentTarget.style.background='var(--s3)'; e.currentTarget.style.borderColor='rgba(91,63,200,0.3)';}}
+                onMouseLeave={e=>{e.currentTarget.style.background='transparent'; e.currentTarget.style.borderColor='var(--b1)';}}>
+                <Icon size={12} color="#7C5CE8"/>{label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* AI Copilot */}
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'14px' }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:10 }}>AI Copilot</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+            {[
+              { label:'Generate Follow Up Email', mode:'email'       },
+              { label:'GMB Visibility Summary',    mode:'situational' },
+              { label:'Objection Handling',         mode:'situational' },
+              { label:'Competitor Email',           mode:'email'       },
+              { label:'Voicemail Script',           mode:'voicemail'   },
+            ].map(({ label, mode })=>(
+              <button key={label} onClick={()=>openCopilot(mode,lead)} style={{ display:'flex', alignItems:'center', gap:7, padding:'7px 10px', borderRadius:7, border:'1px solid rgba(91,63,200,0.2)', background:'rgba(91,63,200,0.04)', cursor:'pointer', color:'var(--t1)', fontSize:11, fontFamily:'inherit', transition:'all 0.12s', textAlign:'left' }}
+                onMouseEnter={e=>{e.currentTarget.style.background='rgba(91,63,200,0.12)'; e.currentTarget.style.borderColor='rgba(91,63,200,0.4)';}}
+                onMouseLeave={e=>{e.currentTarget.style.background='rgba(91,63,200,0.04)'; e.currentTarget.style.borderColor='rgba(91,63,200,0.2)';}}>
+                <Sparkles size={11} color="#7C5CE8"/>{label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Lead Memory */}
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'14px' }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:10 }}>Lead Memory</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:10 }}>
+            {(lead.memory||[]).length===0
+              ? <span style={{ fontSize:11, color:T2, fontStyle:'italic' }}>No memory entries yet</span>
+              : (lead.memory||[]).slice(0,5).map((m,i)=>(
+                <div key={m.id||i} style={{ padding:'5px 8px', borderRadius:6, background:'var(--s3)', border:'1px solid var(--b1)' }}>
+                  <span style={{ fontSize:11, color:'var(--t1)' }}>{m.text}</span>
+                  {m.tag && <span style={{ marginLeft:6, fontSize:9, color:'#7C5CE8', fontWeight:600 }}>{m.tag}</span>}
+                </div>
+              ))
+            }
+          </div>
+          <button style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:'#7C5CE8', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit', padding:0 }}>
+            <Plus size={10}/> Add Memory
+          </button>
+        </div>
+
+        {/* Files & Links */}
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'14px' }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:10 }}>Files &amp; Links</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6, marginBottom:10 }}>
+            {(lead.files||[]).length===0 ? (
+              ['SEO Report.pdf','GMB Screenshot.png','Competitors Analysis.xlsx'].map(f=>(
+                <div key={f} style={{ display:'flex', alignItems:'center', gap:7, padding:'5px 8px', borderRadius:6, background:'var(--s3)', border:'1px solid var(--b1)', cursor:'pointer' }}>
+                  <Paperclip size={11} color="#7C5CE8"/>
+                  <span style={{ fontSize:11, color:'var(--t1)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{f}</span>
+                </div>
+              ))
+            ) : (lead.files||[]).map((f,i)=>(
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:7, padding:'5px 8px', borderRadius:6, background:'var(--s3)', border:'1px solid var(--b1)', cursor:'pointer' }}>
+                <Paperclip size={11} color="#7C5CE8"/>
+                <span style={{ fontSize:11, color:'var(--t1)' }}>{f.name||f}</span>
+              </div>
+            ))}
+          </div>
+          <button style={{ display:'flex', alignItems:'center', gap:4, fontSize:10, color:'#7C5CE8', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit', padding:0 }}>
+            <Upload size={10}/> Upload File
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Tab: AE Notes ─── */
+function AENotesTab({ lead }) {
+  const { updateLead } = useApp();
+  const [val, setVal] = useState(lead.aeNotes||'');
+  const debRef = useRef(null);
+  const onChange = v => { setVal(v); clearTimeout(debRef.current); debRef.current=setTimeout(()=>updateLead(lead.id,{aeNotes:v}),400); };
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+      <div style={{ display:'flex', gap:8, padding:'8px 12px', borderRadius:9, background:'rgba(91,63,200,0.06)', border:'1px solid rgba(91,63,200,0.2)' }}>
+        <Brain size={13} color="#7C5CE8" style={{ flexShrink:0, marginTop:1 }}/>
+        <p style={{ fontSize:11, color:T2, margin:0, lineHeight:1.6 }}>
+          AE Notes are your <strong style={{ color:'var(--t1)' }}>research layer</strong>: GMB, competitors, keywords, SEO scans, website data. Static context — AI Intelligence is separate and dynamic.
+        </p>
+      </div>
+      <textarea value={val} onChange={e=>onChange(e.target.value)} rows={18}
+        placeholder="Paste research here: competitor review counts, Google Maps URL, Salesloft URL, keywords, SEO scan, rep gap, any context that helps the AE…"
+        style={{ width:'100%', padding:'14px', borderRadius:10, border:`1px solid ${B1}`, background:'var(--bg)', color:T1, fontSize:12, fontFamily:'JetBrains Mono,monospace', lineHeight:1.8, resize:'vertical', outline:'none', transition:'border-color 0.15s' }}
+        onFocus={e=>e.target.style.borderColor='#5B3FC8'} onBlur={e=>e.target.style.borderColor=B1}/>
+    </div>
+  );
+}
+
+/* ─── Tab: AI Intelligence ─── */
+function AIIntelTab({ lead }) {
+  const { updateIntelligence } = useApp();
+  const intel = lead.intelligence || {};
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+
+  const ListEditor = ({ label, field, color }) => {
+    const [input, setInput] = useState('');
+    const items = intel[field] || [];
+    const add = () => {
+      if (!input.trim()) return;
+      updateIntelligence(lead.id, { [field]: [...items, input.trim()] });
+      setInput('');
+    };
+    return (
+      <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10, padding:'12px 14px' }}>
+        <div style={{ fontSize:11, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>{label}</div>
+        <div style={{ display:'flex', flexDirection:'column', gap:5, marginBottom:8 }}>
+          {items.length===0 ? <span style={{ fontSize:11, color:'var(--t3)', fontStyle:'italic' }}>None logged yet</span>
+            : items.map((item,i)=>(
+              <div key={i} style={{ display:'flex', alignItems:'center', gap:7 }}>
+                <div style={{ width:5, height:5, borderRadius:'50%', background:color, flexShrink:0 }}/>
+                <span style={{ fontSize:12, color:T1, flex:1 }}>{item}</span>
+                <button onClick={()=>updateIntelligence(lead.id,{[field]:items.filter((_,j)=>j!==i)})} style={{ padding:2, border:'none', background:'transparent', cursor:'pointer', color:'var(--t3)', opacity:0.5 }}
+                  onMouseEnter={e=>e.currentTarget.style.opacity='1'} onMouseLeave={e=>e.currentTarget.style.opacity='0.5'}>
+                  <X size={11}/>
+                </button>
+              </div>
+            ))}
+        </div>
+        <div style={{ display:'flex', gap:6 }}>
+          <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()} placeholder={`Add ${label.toLowerCase()}…`}
+            style={{ flex:1, padding:'6px 9px', borderRadius:7, border:`1px solid ${B1}`, background:'var(--s2)', color:T1, fontSize:11, fontFamily:'inherit', outline:'none' }}/>
+          <button onClick={add} style={{ padding:'6px 10px', borderRadius:7, border:'none', background:'rgba(91,63,200,0.15)', color:'#7C5CE8', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>+</button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+      {/* Summary */}
+      <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10, padding:'14px' }}>
+        <div style={{ fontSize:11, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>AI Summary</div>
+        <textarea value={intel.summary||''} onChange={e=>updateIntelligence(lead.id,{summary:e.target.value})} rows={3}
+          placeholder="AI-generated summary of this lead…"
+          style={{ width:'100%', padding:'9px 10px', borderRadius:8, border:`1px solid ${B1}`, background:'var(--s2)', color:T1, fontSize:12, fontFamily:'inherit', lineHeight:1.7, resize:'none', outline:'none' }}/>
+      </div>
+
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+        <ListEditor label="Pain Points"    field="painPoints"    color="#F87171"/>
+        <ListEditor label="Competitors"    field="competitors"   color="#F59E0B"/>
+        <ListEditor label="Objections"     field="objections"    color="#F472B6"/>
+        <ListEditor label="Buying Signals" field="buyingSignals" color="#34D399"/>
+        <ListEditor label="Decision Makers"field="decisionMakers"color="#7C5CE8"/>
+      </div>
+
+      {/* Scalars */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
+        {[
+          { label:'Budget',   field:'budget'   },
+          { label:'Timeline', field:'timeline' },
+          { label:'Preferred Communication', field:'preferredCommunicationStyle' },
+        ].map(({ label, field })=>(
+          <div key={field} style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10, padding:'12px 14px' }}>
+            <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:5 }}>{label}</div>
+            <input value={intel[field]||''} onChange={e=>updateIntelligence(lead.id,{[field]:e.target.value})}
+              placeholder={`Enter ${label.toLowerCase()}…`}
+              style={{ width:'100%', padding:'6px 8px', borderRadius:7, border:`1px solid ${B1}`, background:'var(--s2)', color:T1, fontSize:12, fontFamily:'inherit', outline:'none' }}/>
+          </div>
+        ))}
+      </div>
+
+      {/* Temperature + Probability */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10, padding:'12px 14px' }}>
+          <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>Lead Temperature</div>
+          <div style={{ display:'flex', gap:6 }}>
+            {['Ice Cold','Cold','Warm','Hot','On Fire'].map(t=>(
+              <button key={t} onClick={()=>updateIntelligence(lead.id,{leadTemperature:t})} style={{ flex:1, padding:'5px', borderRadius:7, border:`1px solid ${intel.leadTemperature===t?'#7C5CE8':'var(--b1)'}`, background:intel.leadTemperature===t?'rgba(91,63,200,0.15)':'transparent', color:intel.leadTemperature===t?'#7C5CE8':'var(--t2)', fontSize:9, fontWeight:intel.leadTemperature===t?700:400, cursor:'pointer', fontFamily:'inherit' }}>{t}</button>
+            ))}
+          </div>
+        </div>
+        <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10, padding:'12px 14px' }}>
+          <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:8 }}>Meeting Probability: {intel.meetingProbability||0}%</div>
+          <input type="range" min={0} max={100} value={intel.meetingProbability||0} onChange={e=>updateIntelligence(lead.id,{meetingProbability:+e.target.value})}
+            style={{ width:'100%', accentColor:'#5B3FC8' }}/>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── Tab: Timeline ─── */
+function TimelineTab({ lead }) {
+  const activities = [...(lead.activities||[])].sort((a,b)=>new Date(b.timestamp)-new Date(a.timestamp));
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const grouped = activities.reduce((acc, a) => {
+    const d = new Date(a.timestamp).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+    if (!acc[d]) acc[d]=[];
+    acc[d].push(a);
+    return acc;
+  }, {});
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
+      {Object.keys(grouped).length===0 ? (
+        <div style={{ textAlign:'center', padding:'48px', color:T2 }}>No timeline entries yet. Add call notes or log activities to build the history.</div>
+      ) : Object.entries(grouped).map(([date, items])=>(
+        <div key={date}>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 0 8px', borderBottom:`1px solid ${B1}`, marginBottom:12 }}>{date}</div>
+          <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20, position:'relative', paddingLeft:40 }}>
+            <div style={{ position:'absolute', left:14, top:0, bottom:-20, width:2, background:B1 }}/>
+            {items.map((a,i)=>(
+              <div key={a.activityId||i} style={{ display:'flex', alignItems:'flex-start', gap:12, position:'relative' }}>
+                <div style={{ position:'absolute', left:-26, zIndex:1 }}>
+                  <ActivityIcon type={a.type} outcome={a.outcome}/>
+                </div>
+                <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10, padding:'10px 14px', flex:1 }}>
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:a.details?.content?6:0 }}>
+                    <span style={{ fontSize:12, fontWeight:600, color:T1 }}>{a.summary}</span>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      {a.outcome && <span style={{ fontSize:10, fontWeight:600, color:outcomeColor(a.outcome) }}>{a.outcome}</span>}
+                      <span style={{ fontSize:10, color:T2 }}>{new Date(a.timestamp).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span>
+                    </div>
+                  </div>
+                  {a.details?.content && <p style={{ fontSize:11, color:T2, lineHeight:1.6, margin:0 }}>{a.details.content}</p>}
+                  {a.details?.nextStep && <p style={{ fontSize:11, color:'#7C5CE8', margin:'4px 0 0', fontWeight:500 }}>→ {a.details.nextStep}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Tab: Activities ─── */
+function ActivitiesTab({ lead }) {
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const acts = (lead.activities||[]);
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+      {acts.length===0 ? (
+        <div style={{ textAlign:'center', padding:'48px', color:T2 }}>No activities logged yet.</div>
+      ) : acts.map((a,i)=>(
+        <div key={a.activityId||i} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 14px', background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10 }}>
+          <ActivityIcon type={a.type} outcome={a.outcome}/>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:T1 }}>{a.summary}</div>
+            {a.details?.content && <p style={{ fontSize:11, color:T2, lineHeight:1.5, margin:'3px 0 0', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.details.content}</p>}
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3, flexShrink:0 }}>
+            <span style={{ fontSize:10, color:T2 }}>{new Date(a.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>
+            {a.outcome && <span style={{ fontSize:10, fontWeight:600, color:outcomeColor(a.outcome) }}>{a.outcome}</span>}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Tab: Email / SMS / LinkedIn / Voicemail (channel tabs) ─── */
+function ChannelTab({ lead, channel }) {
+  const { openCopilot } = useApp();
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const mode = channel.toLowerCase().replace(' ','');
+  const items = (lead.activities||[]).filter(a=>a.type===channel);
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+      <div style={{ display:'flex', justifyContent:'flex-end' }}>
+        <button onClick={()=>openCopilot(mode,lead)} style={{ display:'flex', alignItems:'center', gap:6, padding:'8px 14px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)' }}>
+          <Sparkles size={12}/> Generate {channel}
+        </button>
+      </div>
+      {items.length===0 ? (
+        <div style={{ textAlign:'center', padding:'48px', color:T2 }}>No {channel.toLowerCase()} history yet.</div>
+      ) : items.map((a,i)=>(
+        <div key={a.activityId||i} style={{ padding:'12px 14px', background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:6 }}>
+            <span style={{ fontSize:12, fontWeight:600, color:T1 }}>{a.summary}</span>
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              {a.outcome && <span style={{ fontSize:10, fontWeight:600, color:outcomeColor(a.outcome) }}>{a.outcome}</span>}
+              <span style={{ fontSize:10, color:T2 }}>{new Date(a.timestamp).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</span>
+            </div>
+          </div>
+          {a.details?.subject && <div style={{ fontSize:11, color:T2, marginBottom:4 }}>Subject: {a.details.subject}</div>}
+          {a.details?.content && <p style={{ fontSize:12, color:T1, lineHeight:1.7, margin:0 }}>{a.details.content}</p>}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Tab: Follow Ups ─── */
+function FollowUpsTab({ lead, onSchedule }) {
+  const { updateLead } = useApp();
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const followUps = lead.followUps||[];
+  const TYPE_COLORS = { email:'#7C5CE8', call:'#10B981', sms:'#3B82F6', linkedin:'#0A66C2', demo:'#F59E0B' };
+
+  const markDone = (id) => updateLead(lead.id, { followUps: followUps.map(f=>f.id===id?{...f,done:true}:f) });
+  const remove   = (id) => updateLead(lead.id, { followUps: followUps.filter(f=>f.id!==id) });
+
+  const upcoming  = followUps.filter(f=>!f.done);
+  const completed = followUps.filter(f=>f.done);
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+      <div style={{ display:'flex', justifyContent:'flex-end' }}>
+        <button onClick={onSchedule} style={{ display:'flex', alignItems:'center', gap:5, padding:'8px 14px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)' }}>
+          <Calendar size={12}/> Schedule Follow Up
+        </button>
+      </div>
+      {followUps.length===0 && (
+        <div style={{ textAlign:'center', padding:'48px', color:T2 }}>No follow-ups scheduled. Click the button above to schedule one.</div>
+      )}
+      {upcoming.length>0 && <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.06em' }}>Upcoming</div>}
+      {upcoming.map(fu=>(
+        <div key={fu.id} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'12px 14px', background:'var(--bg)', border:`1px solid ${TYPE_COLORS[fu.type]||'var(--b1)'}30`, borderRadius:10 }}>
+          <Calendar size={14} color={TYPE_COLORS[fu.type]||'#7C5CE8'} style={{ flexShrink:0, marginTop:2 }}/>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:12, fontWeight:600, color:T1 }}>{fu.type?.charAt(0).toUpperCase()+fu.type?.slice(1)} Follow Up</div>
+            <div style={{ fontSize:11, color:T2, marginTop:2 }}>{fu.display}</div>
+            {fu.notes && <p style={{ fontSize:11, color:T1, lineHeight:1.5, margin:'5px 0 0', borderLeft:`2px solid ${TYPE_COLORS[fu.type]||'#7C5CE8'}`, paddingLeft:7 }}>{fu.notes}</p>}
+          </div>
+          <div style={{ display:'flex', gap:4 }}>
+            <button onClick={()=>markDone(fu.id)} style={{ padding:5, borderRadius:6, border:'1px solid var(--b1)', background:'transparent', cursor:'pointer', color:'var(--t2)', display:'flex' }}
+              onMouseEnter={e=>{e.currentTarget.style.color='#10B981'; e.currentTarget.style.borderColor='rgba(16,185,129,0.4)'}}
+              onMouseLeave={e=>{e.currentTarget.style.color='var(--t2)'; e.currentTarget.style.borderColor='var(--b1)'}}><CheckCircle2 size={13}/></button>
+            <button onClick={()=>remove(fu.id)} style={{ padding:5, borderRadius:6, border:'1px solid var(--b1)', background:'transparent', cursor:'pointer', color:'var(--t2)', display:'flex' }}
+              onMouseEnter={e=>{e.currentTarget.style.color='#EF4444'; e.currentTarget.style.borderColor='rgba(239,68,68,0.4)'}}
+              onMouseLeave={e=>{e.currentTarget.style.color='var(--t2)'; e.currentTarget.style.borderColor='var(--b1)'}}><X size={13}/></button>
+          </div>
+        </div>
+      ))}
+      {completed.length>0 && <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginTop:4 }}>Completed</div>}
+      {completed.map(fu=>(
+        <div key={fu.id} style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px', background:'var(--bg)', border:'1px solid var(--b1)', borderRadius:10, opacity:0.55 }}>
+          <CheckCircle2 size={14} color="#10B981" style={{ flexShrink:0 }}/>
+          <div style={{ flex:1 }}>
+            <span style={{ fontSize:12, color:T1, textDecoration:'line-through' }}>{fu.type?.charAt(0).toUpperCase()+fu.type?.slice(1)} · {fu.display}</span>
+          </div>
+          <button onClick={()=>remove(fu.id)} style={{ padding:4, border:'none', background:'transparent', cursor:'pointer', color:'var(--t2)' }}><X size={12}/></button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Tab: AI Memory ─── */
+function MemoryTab({ lead }) {
+  const { addMemoryEntry, removeMemoryEntry } = useApp();
+  const [input, setInput] = useState('');
+  const [tag,   setTag]   = useState('Context');
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const TAGS = ['Context','Pain Point','Objection','Competitor','Win Signal','Decision Maker','Budget','Timeline'];
+  const TAG_COLORS = { 'Context':'#60A5FA','Pain Point':'#F472B6','Objection':'#F87171','Competitor':'#FCD34D','Win Signal':'#34D399','Decision Maker':'#7C5CE8','Budget':'#FCD34D','Timeline':'#38BDF8' };
+  const add = () => { if (!input.trim()) return; addMemoryEntry(lead.id, { text:input.trim(), tag, date:'Today' }); setInput(''); };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+      <div style={{ display:'flex', gap:8 }}>
+        <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()}
+          placeholder="Add a memory entry for this lead…"
+          style={{ flex:1, padding:'9px 12px', borderRadius:8, border:'1px solid var(--b1)', background:'var(--bg)', color:T1, fontSize:12, fontFamily:'inherit', outline:'none' }}/>
+        <select value={tag} onChange={e=>setTag(e.target.value)}
+          style={{ padding:'9px 10px', borderRadius:8, border:'1px solid var(--b1)', background:'var(--s2)', color:T1, fontSize:11, fontFamily:'inherit', outline:'none' }}>
+          {TAGS.map(t=><option key={t}>{t}</option>)}
+        </select>
+        <button onClick={add} style={{ padding:'9px 14px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>Add</button>
+      </div>
+      {(lead.memory||[]).length===0 ? (
+        <div style={{ textAlign:'center', padding:'40px', color:T2 }}>No memory entries yet. Add context above.</div>
+      ) : (lead.memory||[]).map(m=>(
+        <div key={m.id} style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'10px 14px', background:'var(--bg)', border:'1px solid var(--b1)', borderRadius:10 }}>
+          <Brain size={13} color="#7C5CE8" style={{ flexShrink:0, marginTop:2 }}/>
+          <div style={{ flex:1 }}>
+            <p style={{ fontSize:12, color:T1, lineHeight:1.6, margin:0 }}>{m.text}</p>
+            <div style={{ display:'flex', gap:6, marginTop:5 }}>
+              {m.tag && <span style={{ fontSize:10, fontWeight:600, padding:'1px 7px', borderRadius:99, background:`${TAG_COLORS[m.tag]||'#60A5FA'}18`, color:TAG_COLORS[m.tag]||'#60A5FA' }}>{m.tag}</span>}
+              <span style={{ fontSize:10, color:T2 }}>{m.date}</span>
+            </div>
+          </div>
+          <button onClick={()=>removeMemoryEntry(lead.id,m.id)} style={{ padding:4, border:'none', background:'transparent', cursor:'pointer', color:'var(--t3)', opacity:0.5, transition:'opacity 0.12s' }}
+            onMouseEnter={e=>{e.currentTarget.style.opacity='1'; e.currentTarget.style.color='#EF4444';}}
+            onMouseLeave={e=>{e.currentTarget.style.opacity='0.5'; e.currentTarget.style.color='var(--t3)';}}>
+            <X size={12}/>
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ─── Tab: Cadence ─── */
+function CadenceTab({ lead }) {
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const CADENCE_STEPS = [
+    { day:1, label:'AI Audit Sent',       done:true,  today:false, type:'Email'    },
+    { day:3, label:'Comp. Proof (Today)', done:false, today:true,  type:'Email'    },
+    { day:5, label:'Case Study',          done:false, today:false, type:'Email'    },
+    { day:7, label:'Soft CTA',            done:false, today:false, type:'LinkedIn' },
+  ];
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+        <span style={{ fontSize:13, fontWeight:600, color:T1 }}>Day {lead.cadenceDay||0} of {lead.cadenceTotal||7}</span>
+        <button style={{ fontSize:11, color:'#7C5CE8', background:'none', border:'none', cursor:'pointer', fontFamily:'inherit' }}>Change Cadence</button>
+      </div>
+      <div style={{ position:'relative', paddingLeft:40 }}>
+        <div style={{ position:'absolute', left:14, top:20, bottom:0, width:2, background:B1 }}/>
+        {CADENCE_STEPS.map(({ day, label, done, today, type })=>(
+          <div key={day} style={{ display:'flex', alignItems:'center', gap:12, marginBottom:18, position:'relative' }}>
+            <div style={{ position:'absolute', left:-26, width:14, height:14, borderRadius:'50%', background:done?'#10B981':today?'#5B3FC8':'var(--bg)', border:`2px solid ${done?'#10B981':today?'#5B3FC8':'var(--b1)'}`, zIndex:1, boxShadow:today?'0 0 10px rgba(91,63,200,0.4)':'none' }}/>
+            <span style={{ fontSize:10, fontFamily:'JetBrains Mono,monospace', color:T2, width:36, flexShrink:0 }}>Day {day}</span>
+            <div style={{ flex:1 }}>
+              <span style={{ fontSize:12, fontWeight:today?600:400, color:done?T2:today?'#7C5CE8':T1 }}>{label}</span>
+              <span style={{ fontSize:10, color:T2, marginLeft:8 }}>{type}</span>
+            </div>
+            {done && <CheckCircle2 size={13} color="#10B981"/>}
+            {today && <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:99, background:'rgba(91,63,200,0.15)', color:'#7C5CE8' }}>Today</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN LEAD PAGE
+═══════════════════════════════════════════════════════════════ */
+export default function LeadPage() {
+  const { activeLead, closeLead, updateLead, openCopilot } = useApp();
+  const [tab,           setTab]           = useState('overview');
+  const [followUpOpen,  setFollowUpOpen]  = useState(false);
+  const [callNotesOpen, setCallNotesOpen] = useState(false);
+  const [prepareOpen,   setPrepareOpen]   = useState(false);
+  const [recordingOpen, setRecordingOpen] = useState(false);
+
+  if (!activeLead) return null;
+  const lead = activeLead;
+  const initials = lead.business.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const stageStyle = STAGE_STYLE[lead.stage] || STAGE_STYLE['New'];
+  const intel = lead.intelligence || {};
+
+  return (
+    <div className="fade-up" style={{ display:'flex', flexDirection:'column', gap:0 }}>
+
+      {/* Breadcrumb */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:16 }}>
+        <button onClick={closeLead} style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color:T2, cursor:'pointer', fontSize:12, fontFamily:'inherit', transition:'all 0.15s' }}
+          onMouseEnter={e=>{ e.currentTarget.style.color=T1; e.currentTarget.style.borderColor='var(--b2)'; }}
+          onMouseLeave={e=>{ e.currentTarget.style.color=T2; e.currentTarget.style.borderColor=B1; }}>
+          <ArrowLeft size={13}/> Back
+        </button>
+        <ChevronRight size={12} color="var(--t3)"/>
+        <span style={{ fontSize:12, color:T1, fontWeight:500 }}>{lead.business}</span>
+      </div>
+
+      {/* ── Header ── */}
+      <div style={{ background:'var(--s1)', border:`1px solid ${B1}`, borderRadius:14, padding:'20px 24px', marginBottom:14 }}>
+        <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:16, flexWrap:'wrap' }}>
+
+          {/* Left: avatar + info */}
+          <div style={{ display:'flex', alignItems:'flex-start', gap:16 }}>
+            <div style={{ width:52, height:52, borderRadius:14, flexShrink:0, background:'linear-gradient(135deg,#5B3FC8,#3B82F6)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:18, fontWeight:700, color:'#fff', boxShadow:'0 6px 20px rgba(91,63,200,0.35)' }}>
+              {initials}
+            </div>
+            <div>
+              <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap', marginBottom:5 }}>
+                <h1 style={{ fontSize:20, fontWeight:700, color:T1, margin:0 }}>{lead.business}</h1>
+                <span style={{ ...stageStyle, fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:99 }}>🔥 {lead.stage}</span>
+                <Star size={15} color="var(--t3)" style={{ cursor:'pointer' }}/>
+              </div>
+              {lead.contact && <div style={{ fontSize:12, color:T2, marginBottom:5 }}>{lead.contact} · Owner</div>}
+              <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
+                {lead.salesloftUrl && <a href={lead.salesloftUrl} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T2, display:'flex', alignItems:'center', gap:4, textDecoration:'none' }}><span style={{ fontSize:10, fontWeight:600, padding:'1px 5px', borderRadius:3, background:'rgba(91,63,200,0.15)', color:'#7C5CE8' }}>SL</span> Salesloft</a>}
+                {lead.website && <a href={`https://${lead.website}`} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T2, display:'flex', alignItems:'center', gap:4, textDecoration:'none' }}><Globe size={11}/> Website</a>}
+                {lead.gmbUrl && <a href={lead.gmbUrl} target="_blank" rel="noreferrer" style={{ fontSize:11, color:T2, display:'flex', alignItems:'center', gap:4, textDecoration:'none' }}><MapPin size={11}/> GMB</a>}
+                <span style={{ fontSize:11, color:T2, display:'flex', alignItems:'center', gap:4 }}><Phone size={11}/>{lead.phone}</span>
+                <span style={{ fontSize:11, color:T2, display:'flex', alignItems:'center', gap:4 }}><Mail size={11}/>{lead.email}</span>
+                <span style={{ fontSize:11, color:T2, display:'flex', alignItems:'center', gap:4 }}><MapPin size={11}/>{lead.city}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: metrics + action buttons */}
+          <div style={{ display:'flex', flexDirection:'column', gap:10, alignItems:'flex-end' }}>
+            {/* Salesloft + Copy buttons */}
+            <div style={{ display:'flex', gap:8 }}>
+              {lead.salesloftUrl && (
+                <a href={lead.salesloftUrl} target="_blank" rel="noreferrer" style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 12px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color:T2, fontSize:11, textDecoration:'none', fontFamily:'inherit', transition:'all 0.15s' }}>
+                  <ExternalLink size={12}/> Open in Salesloft
+                </a>
+              )}
+              <button onClick={()=>{ const s=`${lead.business} | ${lead.contact||''} | ${lead.email||''} | ${lead.stage} | ${intel.nextBestAction||lead.nextAction||''}`; navigator.clipboard.writeText(s); }} style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 12px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color:T2, fontSize:11, cursor:'pointer', fontFamily:'inherit', transition:'all 0.15s' }}
+                onMouseEnter={e=>{e.currentTarget.style.color=T1; e.currentTarget.style.borderColor='var(--b2)';}}
+                onMouseLeave={e=>{e.currentTarget.style.color=T2; e.currentTarget.style.borderColor=B1;}}>
+                <Copy size={12}/> Copy Summary
+              </button>
+              <button style={{ padding:'7px 8px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color:T2, cursor:'pointer', display:'flex' }}>
+                <MoreHorizontal size={14}/>
+              </button>
+            </div>
+
+            {/* Key metrics row */}
+            <div style={{ display:'flex', gap:14, alignItems:'center' }}>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontSize:9, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:2 }}>AI Score</div>
+                <ScoreRing score={lead.aiScore} size={44}/>
+              </div>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontSize:9, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:4 }}>Lead Score</div>
+                <div style={{ fontSize:20, fontWeight:700, color:'#7C5CE8', fontFamily:'JetBrains Mono,monospace' }}>{lead.aiScore}</div>
+              </div>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontSize:9, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:4 }}>Last Touch</div>
+                <div style={{ fontSize:13, fontWeight:600, color:T1 }}>{lead.lastTouch||'Never'}</div>
+              </div>
+              <div style={{ textAlign:'center' }}>
+                <div style={{ fontSize:9, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:4 }}>Next Best Action</div>
+                <div style={{ fontSize:12, fontWeight:600, color:'#7C5CE8', maxWidth:120, textAlign:'right' }}>{intel.nextBestAction||lead.nextAction||'—'}</div>
+              </div>
+            </div>
+
+            {/* Stage pills */}
+            <div style={{ display:'flex', gap:4, flexWrap:'wrap', justifyContent:'flex-end' }}>
+              {STAGES_ALL.map(s=>{
+                const active=lead.stage===s, st=STAGE_STYLE[s]||STAGE_STYLE['New'];
+                return (
+                  <button key={s} onClick={()=>updateLead(lead.id,{stage:s})} style={{ fontSize:10, fontWeight:600, padding:'3px 10px', borderRadius:99, border:active?`1px solid ${st.border}`:`1px solid ${B1}`, background:active?st.bg:'transparent', color:active?st.color:T2, cursor:'pointer', fontFamily:'inherit', transition:'all 0.15s' }}>
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Schedule Follow Up */}
+            <button onClick={()=>setFollowUpOpen(true)} style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 12px', borderRadius:8, border:'1px solid rgba(91,63,200,0.35)', background:'rgba(91,63,200,0.08)', color:'#7C5CE8', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', transition:'all 0.15s' }}
+              onMouseEnter={e=>{e.currentTarget.style.background='rgba(91,63,200,0.15)';}}
+              onMouseLeave={e=>{e.currentTarget.style.background='rgba(91,63,200,0.08)';}}>
+              <Calendar size={12}/> Schedule Follow Up
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tabs ── */}
+      <div style={{ display:'flex', overflowX:'auto', borderBottom:`1px solid ${B1}`, background:'var(--s1)', borderRadius:'12px 12px 0 0', padding:'0 4px' }}>
+        {TABS.map(({ id, label })=>{
+          const active=tab===id;
+          const badge = id==='activities' ? (lead.activities||[]).length : id==='followups' ? (lead.followUps||[]).filter(f=>!f.done).length : 0;
+          return (
+            <button key={id} onClick={()=>setTab(id)} style={{ padding:'11px 14px', border:'none', background:'transparent', borderBottom:active?'2px solid var(--p)':'2px solid transparent', color:active?'var(--p-glow)':T2, fontSize:11, fontWeight:active?600:400, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap', transition:'color 0.12s', marginBottom:'-1px', display:'flex', alignItems:'center', gap:5 }}>
+              {label}
+              {badge>0 && <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:99, background:'rgba(91,63,200,0.2)', color:'#7C5CE8' }}>{badge}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Tab content ── */}
+      <div style={{ background:'var(--s1)', border:`1px solid ${B1}`, borderTop:'none', borderRadius:'0 0 12px 12px', padding:'20px', minHeight:400 }}>
+        {tab==='overview'        && <OverviewTab    lead={lead} onCallNotes={()=>setCallNotesOpen(true)} onPrepareCall={()=>setPrepareOpen(true)} onFollowUp={()=>setFollowUpOpen(true)}/>}
+        {tab==='ae_notes'        && <AENotesTab     lead={lead}/>}
+        {tab==='ai_intelligence' && <AIIntelTab     lead={lead}/>}
+        {tab==='timeline'        && <TimelineTab    lead={lead}/>}
+        {tab==='activities'      && <ActivitiesTab  lead={lead}/>}
+        {tab==='emails'          && <ChannelTab     lead={lead} channel="Email"/>}
+        {tab==='sms'             && <ChannelTab     lead={lead} channel="SMS"/>}
+        {tab==='linkedin'        && <ChannelTab     lead={lead} channel="LinkedIn"/>}
+        {tab==='voicemails'      && <ChannelTab     lead={lead} channel="Voicemail"/>}
+        {tab==='followups'       && <FollowUpsTab   lead={lead} onSchedule={()=>setFollowUpOpen(true)}/>}
+        {tab==='memory'          && <MemoryTab      lead={lead}/>}
+        {tab==='cadence'         && <CadenceTab     lead={lead}/>}
+      </div>
+
+      {/* Modals */}
+      {followUpOpen  && <FollowUpModal    lead={lead} onClose={()=>setFollowUpOpen(false)}/>}
+      {callNotesOpen && <CallNotesModal   lead={lead} onClose={()=>setCallNotesOpen(false)}/>}
+      {prepareOpen   && <PrepareCallDrawer lead={lead} onClose={()=>setPrepareOpen(false)}/>}
+      {recordingOpen && <RecordingUpload    lead={lead} onClose={()=>setRecordingOpen(false)}/>}
+    </div>
+  );
+}
