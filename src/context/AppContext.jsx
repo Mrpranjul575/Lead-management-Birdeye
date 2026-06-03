@@ -67,6 +67,28 @@ function _fieldLabel(field) {
   return LABELS[field] || 'Fact';
 }
 
+// ── _scoreTriggerLabel — Phase 11 ─────────────────────────────────────────────
+// Produces a short human-readable string for scoreHistory.trigger from an
+// intelligence patch object. Used so score history entries are self-describing.
+function _scoreTriggerLabel(patch) {
+  const keys = Object.keys(patch).filter(k => k !== 'lastUpdated' && k !== 'geminiEnrichedAt' && k !== 'scoreHistory');
+  if (keys.length === 0) return 'Intelligence updated';
+  const FIELD_LABELS = {
+    buyingSignals:  'Buying Signals updated',
+    objections:     'Objections updated',
+    painPoints:     'Pain Points updated',
+    leadTemperature:'Lead Temperature set',
+    summary:        'Summary updated',
+    nextBestAction: 'Next Best Action set',
+    geminiEnrichedAt: 'Gemini enrichment',
+  };
+  if (keys.length === 1) return FIELD_LABELS[keys[0]] || `${keys[0]} updated`;
+  if (keys.includes('buyingSignals') || keys.includes('objections')) {
+    return 'Gemini enrichment — signals updated';
+  }
+  return 'Intelligence updated';
+}
+
 export function AppProvider({ children }) {
   const [theme,        setTheme]        = useState('dark');
   const [view,         setView]         = useState('workqueue');
@@ -108,7 +130,18 @@ export function AppProvider({ children }) {
           SheetsAdapter.updateStatus(lead.email, patch.stage).catch(() => {});
         }
       }
-      return ls.map(l => l.id===id ? applyScore({ ...l, ...patch }) : l);
+      return ls.map(l => {
+        if (l.id !== id) return l;
+        const updated   = applyScore({ ...l, ...patch });
+        // Phase 11: record score history snapshot when aiScore moves.
+        if (updated.aiScore !== (l.aiScore ?? 0)) {
+          const trigger  = patch.stage ? `Stage → ${patch.stage}` : 'Lead fields updated';
+          const snapshot = { aiScore: updated.aiScore, timestamp: new Date().toISOString(), trigger };
+          const history  = [snapshot, ...(updated.intelligence?.scoreHistory || [])].slice(0, 50);
+          return { ...updated, intelligence: { ...updated.intelligence, scoreHistory: history } };
+        }
+        return updated;
+      });
     });
     // Phase 10D: log a Status Change activity when stage is updated.
     // Fires after setLeads so the activity is appended to the already-updated lead.
@@ -183,7 +216,17 @@ export function AppProvider({ children }) {
     if (Object.keys(safePatch).length === 0) return;
     setLeads(ls => ls.map(l => {
       if (l.id !== leadId) return l;
-      return applyScore({ ...l, intelligence: { ...l.intelligence, ...safePatch, lastUpdated: new Date().toISOString() } });
+      const updated = applyScore({ ...l, intelligence: { ...l.intelligence, ...safePatch, lastUpdated: new Date().toISOString() } });
+      // Phase 11: append to scoreHistory when score moves.
+      // Trigger label derived from patch keys so history entries are self-describing.
+      const prevScore = l.aiScore ?? 0;
+      if (updated.aiScore !== prevScore) {
+        const trigger  = _scoreTriggerLabel(safePatch);
+        const snapshot = { aiScore: updated.aiScore, timestamp: new Date().toISOString(), trigger };
+        const history  = [snapshot, ...(updated.intelligence?.scoreHistory || [])].slice(0, 50);
+        return { ...updated, intelligence: { ...updated.intelligence, scoreHistory: history } };
+      }
+      return updated;
     }));
   }, []);
 

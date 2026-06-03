@@ -13,7 +13,7 @@ import { STAGES_ALL, STAGE_STYLE } from '../constants/stages';
 import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity, isConfirmed } from '../data/schema';
 import { SEQ_PLAN } from '../constants/cadencePlan';
 import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay, getCadenceProgress } from '../utils/cadenceUtils';
-import { deriveSignals, deriveActivityIntelligence } from '../utils/intelligenceEngine';
+import { deriveSignals, deriveActivityIntelligence, buildScoreBreakdown } from '../utils/intelligenceEngine';
 import ActionCenter from '../components/ActionCenter';
 import NextBestStep from '../components/NextBestStep';
 import FollowUpModal from '../components/FollowUpModal';
@@ -502,6 +502,7 @@ function Bullet({ text, positive }) {
 ═══════════════════════════════════════════════════════════════ */
 const TABS = [
   { id:'overview',         label:'Overview'          },
+  { id:'scoring',          label:'Score Explainer'   },
   { id:'ae_notes',         label:'AE Notes'          },
   { id:'ai_intelligence',  label:'AI Intelligence'   },
   { id:'account_knowledge',label:'Account Knowledge' },
@@ -515,6 +516,237 @@ const TABS = [
   { id:'memory',           label:'AI Memory'         },
   { id:'cadence',          label:'Cadence'           },
 ];
+
+/* ─── Tab: Score Explainer (Phase 11) ────────────────────────────────────── */
+
+// ── ContributorRow — single score factor row ───────────────────────────────
+function ContributorRow({ c, accentColor }) {
+  const T1 = 'var(--t1)', T2 = 'var(--t2)', B1 = 'var(--b1)';
+  const barColor = c.category === 'penalty'
+    ? '#F87171'
+    : c.isNeutral
+      ? 'var(--b2)'
+      : accentColor;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:4, padding:'9px 12px', borderRadius:9, background:'var(--s2)', border:`1px solid ${B1}` }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+        {/* Label + reason */}
+        <div style={{ flex:1, minWidth:0 }}>
+          <span style={{ fontSize:12, fontWeight:600, color:T1 }}>{c.label}</span>
+          <span style={{ fontSize:10, color:T2, marginLeft:8 }}>{c.reason}</span>
+        </div>
+        {/* Points badge */}
+        <span style={{
+          fontSize:11, fontWeight:700, fontFamily:'JetBrains Mono,monospace',
+          color: c.category === 'penalty' ? '#F87171' : c.isNeutral ? T2 : accentColor,
+          flexShrink:0, minWidth:32, textAlign:'right',
+        }}>
+          {c.value > 0 ? '+' : ''}{c.value}
+        </span>
+      </div>
+      {/* Progress bar */}
+      <div style={{ height:4, borderRadius:99, background:'var(--b1)', overflow:'hidden' }}>
+        <div style={{
+          height:'100%', borderRadius:99,
+          width: `${c.pct}%`,
+          background: barColor,
+          transition:'width 0.4s ease',
+          opacity: c.isNeutral ? 0.3 : 1,
+        }}/>
+      </div>
+    </div>
+  );
+}
+
+// ── ScorePanel — one complete score block (opportunity or buying intent) ───
+function ScorePanel({ title, score, maxScore = 100, contributors, accentColor, description, provenance }) {
+  const T1 = 'var(--t1)', T2 = 'var(--t2)', B1 = 'var(--b1)';
+  const total     = contributors.reduce((s, c) => s + c.value, 0);
+  const maxPossible = contributors.filter(c => c.value > 0 || c.isNeutral)
+                                   .reduce((s, c) => s + Math.abs(c.max), 0);
+  // Gauge arc — simple half-circle representation
+  const pct   = Math.max(0, Math.min(100, score));
+  const color = pct >= 75 ? '#10B981' : pct >= 50 ? '#F59E0B' : pct >= 25 ? '#F97316' : '#F87171';
+
+  return (
+    <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'18px 20px' }}>
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:16 }}>
+        <div>
+          <div style={{ fontSize:11, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:4 }}>{title}</div>
+          <div style={{ fontSize:11, color:T2, lineHeight:1.5, maxWidth:320 }}>{description}</div>
+        </div>
+        {/* Score circle */}
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', flexShrink:0, marginLeft:16 }}>
+          <div style={{
+            width:64, height:64, borderRadius:'50%',
+            background:`conic-gradient(${color} ${pct * 3.6}deg, var(--b1) 0deg)`,
+            display:'flex', alignItems:'center', justifyContent:'center',
+            boxShadow:`0 0 0 3px var(--bg), 0 0 0 5px ${color}30`,
+          }}>
+            <div style={{
+              width:50, height:50, borderRadius:'50%', background:'var(--bg)',
+              display:'flex', alignItems:'center', justifyContent:'center',
+              fontSize:17, fontWeight:800, color, fontFamily:'JetBrains Mono,monospace',
+            }}>
+              {score}
+            </div>
+          </div>
+          <span style={{ fontSize:9, color:T2, marginTop:5, fontWeight:600 }}>/ {maxScore}</span>
+        </div>
+      </div>
+
+      {/* Contributors */}
+      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+        {contributors.map(c => (
+          <ContributorRow key={c.id} c={c} accentColor={accentColor} />
+        ))}
+      </div>
+
+      {/* Max possible footnote */}
+      <div style={{ marginTop:12, fontSize:10, color:T2, display:'flex', gap:12 }}>
+        <span>Max possible: <strong style={{ color:T1 }}>{maxPossible}</strong></span>
+        <span>Earned: <strong style={{ color:T1 }}>{Math.max(0, total)}</strong></span>
+        {provenance && <span style={{ marginLeft:'auto' }}>{provenance}</span>}
+      </div>
+    </div>
+  );
+}
+
+// ── ScoreHistoryPanel — score change audit trail ────────────────────────────
+function ScoreHistoryPanel({ lead }) {
+  const T1 = 'var(--t1)', T2 = 'var(--t2)', B1 = 'var(--b1)';
+  const history = (lead.intelligence?.scoreHistory || []).slice(0, 12);
+
+  if (history.length === 0) {
+    return (
+      <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'18px 20px' }}>
+        <div style={{ fontSize:11, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:12 }}>Score History</div>
+        <div style={{ textAlign:'center', padding:'24px', color:T2, fontSize:11 }}>
+          No score changes recorded yet.<br/>
+          <span style={{ fontSize:10, opacity:0.7 }}>Changes are logged automatically when the score moves.</span>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:12, padding:'18px 20px' }}>
+      <div style={{ fontSize:11, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:12 }}>Score History</div>
+      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+        {history.map((snap, i) => {
+          const prev  = history[i + 1]?.aiScore ?? null;
+          const delta = prev !== null ? snap.aiScore - prev : null;
+          const deltaColor = delta === null ? T2 : delta > 0 ? '#10B981' : delta < 0 ? '#F87171' : T2;
+          return (
+            <div key={snap.timestamp} style={{
+              display:'flex', alignItems:'center', gap:10,
+              padding:'8px 11px', borderRadius:8, border:`1px solid ${B1}`, background:'var(--s2)',
+            }}>
+              {/* Score badge */}
+              <span style={{
+                fontSize:13, fontWeight:800, fontFamily:'JetBrains Mono,monospace',
+                color:'#7C5CE8', minWidth:28, textAlign:'center',
+              }}>{snap.aiScore}</span>
+
+              {/* Delta */}
+              {delta !== null && (
+                <span style={{ fontSize:10, fontWeight:700, color:deltaColor, minWidth:28 }}>
+                  {delta > 0 ? `▲ +${delta}` : delta < 0 ? `▼ ${delta}` : '─ 0'}
+                </span>
+              )}
+
+              {/* Trigger */}
+              <span style={{ fontSize:11, color:T1, flex:1 }}>{snap.trigger || 'Score updated'}</span>
+
+              {/* Timestamp */}
+              <span style={{ fontSize:10, color:T2, flexShrink:0 }}>
+                {new Date(snap.timestamp).toLocaleDateString('en-US', { month:'short', day:'numeric' })}
+                {' · '}
+                {new Date(snap.timestamp).toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit' })}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── ScoreExplainerTab — main tab component ─────────────────────────────────
+function ScoreExplainerTab({ lead }) {
+  const breakdown = buildScoreBreakdown(lead);
+  const intel     = lead.intelligence || {};
+  const B1 = 'var(--b1)';
+
+  const geminiProvenance = intel.geminiEnrichedAt
+    ? `✨ Signals last enriched ${(() => {
+        const ms  = Date.now() - new Date(intel.geminiEnrichedAt).getTime();
+        const min = Math.floor(ms / 60000);
+        const hr  = Math.floor(min / 60);
+        const day = Math.floor(hr / 24);
+        if (day > 0)  return `${day}d ago`;
+        if (hr  > 0)  return `${hr}h ago`;
+        if (min > 0)  return `${min}m ago`;
+        return 'just now';
+      })()}`
+    : null;
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+
+      {/* Explainer header */}
+      <div style={{
+        padding:'11px 14px', borderRadius:10,
+        background:'rgba(91,63,200,0.06)', border:'1px solid rgba(91,63,200,0.18)',
+        display:'flex', gap:10, alignItems:'flex-start',
+      }}>
+        <span style={{ fontSize:16 }}>📊</span>
+        <div>
+          <div style={{ fontSize:12, fontWeight:700, color:'#7C5CE8', marginBottom:3 }}>Score Explainer</div>
+          <div style={{ fontSize:11, color:'var(--t2)', lineHeight:1.6 }}>
+            Two independent scores. <strong style={{ color:'var(--t1)' }}>Opportunity Score</strong> measures
+            external market potential — how big the AI visibility and competitor gap is.{' '}
+            <strong style={{ color:'var(--t1)' }}>Buying Intent Score</strong> measures
+            readiness — how likely this specific contact is to convert.
+          </div>
+        </div>
+      </div>
+
+      {/* Two-column score panels on wide screens, stacked on narrow */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:14 }}>
+        <ScorePanel
+          title="Opportunity Score"
+          score={breakdown.aiScore}
+          contributors={breakdown.contributors}
+          accentColor="#7C5CE8"
+          description="External market signal — AI visibility gap, competitor pressure, review volume, and rating quality."
+          provenance={null}
+        />
+        <ScorePanel
+          title="Buying Intent Score"
+          score={breakdown.buyingIntentScore}
+          contributors={breakdown.buyingContributors}
+          accentColor="#3B82F6"
+          description="Readiness to buy — pipeline stage progression, confirmed buying signals, and documented objections."
+          provenance={geminiProvenance}
+        />
+      </div>
+
+      {/* Score history */}
+      <ScoreHistoryPanel lead={lead} />
+
+      {/* Architecture note */}
+      <div style={{ padding:'10px 13px', borderRadius:9, border:`1px solid ${B1}`, fontSize:10, color:'var(--t2)', lineHeight:1.6 }}>
+        <strong style={{ color:'var(--t1)' }}>Why two scores?</strong>{' '}
+        A lead can have a Large opportunity (high Opportunity Score) with Low intent — high visibility gap but
+        no confirmed signals. Or a Small opportunity (low Opportunity Score) with High intent — Demo Booked
+        with multiple buying signals. Both dimensions together answer: <em>"Should I prioritise this lead, and is it ready to close?"</em>
+      </div>
+    </div>
+  );
+}
 
 /* ─── Tab: Overview ─── */
 function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording, onTabChange }) {
@@ -2106,6 +2338,7 @@ export default function LeadPage() {
       {/* ── Tab content ── */}
       <div style={{ background:'var(--s1)', border:`1px solid ${B1}`, borderTop:'none', borderRadius:'0 0 12px 12px', padding:'20px', minHeight:400 }}>
         {tab==='overview'        && <OverviewTab    lead={lead} onCallNotes={()=>setCallNotesOpen(true)} onPrepareCall={()=>setPrepareOpen(true)} onFollowUp={()=>setFollowUpOpen(true)} onRecording={()=>setRecordingOpen(true)} onTabChange={setTab}/>}
+        {tab==='scoring'         && <ScoreExplainerTab lead={lead}/>}
         {tab==='ae_notes'        && <AENotesTab     lead={lead}/>}
         {tab==='ai_intelligence' && <AIIntelTab     lead={lead}/>}
         {tab==='account_knowledge' && <AccountKnowledgeTab lead={lead}/>}

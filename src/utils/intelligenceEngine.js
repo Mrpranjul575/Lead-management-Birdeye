@@ -180,6 +180,187 @@ function deriveBuyingIntentScore(lead) {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
+// ─── buildScoreBreakdown ──────────────────────────────────────────────────────
+//
+// Phase 11 — Explainable Lead Scoring
+//
+// Pure function. Same constraints as the rest of this module.
+//
+// CONTRACT
+// ────────
+// buildScoreBreakdown(lead) → ScoreBreakdown
+//
+// ScoreBreakdown:
+//   aiScore           : number  — the final opportunity score (0–100)
+//   contributors      : Contributor[]  — every input to aiScore, sorted by |value| desc
+//   buyingIntentScore : number  — the final buying intent score (0–100)
+//   buyingContributors: Contributor[]  — every input to buyingIntentScore
+//   timestamp         : ISO string  — when this breakdown was derived
+//
+// Contributor:
+//   id       : string  — stable key, safe for React key prop
+//   label    : string  — human-readable name
+//   value    : number  — actual points contributed (negative for penalties)
+//   max      : number  — maximum possible contribution for this factor
+//   pct      : number  — value / Math.abs(max) * 100, clamped 0–100 (for bar width)
+//   isPositive: boolean — true when value > 0
+//   isNeutral : boolean — true when value === 0
+//   reason   : string  — one-line human explanation of the current value
+//   category : 'opportunity' | 'engagement' | 'intelligence' | 'pipeline' | 'penalty'
+//
+// Design rules:
+//   - Mirror the exact arithmetic in computeAiScore / deriveBuyingIntentScore.
+//     If those functions change, this function MUST be updated in lockstep.
+//   - Return contributors even when value === 0 (explains what is NOT contributing).
+//   - Never throws — graceful on missing fields.
+//   - Exported so LeadPage and timelineUtils can import without circular deps.
+
+/**
+ * buildScoreBreakdown(lead) → ScoreBreakdown
+ *
+ * @param {object} lead
+ * @returns {{ aiScore, contributors, buyingIntentScore, buyingContributors, timestamp }}
+ */
+export function buildScoreBreakdown(lead) {
+  if (!lead) return _emptyBreakdown();
+
+  const intel    = lead.intelligence || {};
+  const now      = new Date().toISOString();
+
+  // ── Opportunity Score (aiScore) contributors ───────────────────────────
+  // Mirrors computeAiScore() exactly — update both if formula changes.
+
+  const vis = lead.aiVisibility ?? 0;
+  const visValue = vis < 10 ? 25 : vis < 20 ? 18 : vis < 30 ? 10 : 3;
+  const visReason = vis < 10  ? `${vis}% visibility — severe gap, maximum opportunity`
+                  : vis < 20  ? `${vis}% visibility — large gap, strong opportunity`
+                  : vis < 30  ? `${vis}% visibility — moderate gap`
+                  :             `${vis}% visibility — lead has reasonable presence`;
+
+  const cgValue = lead.compGap === 'High'   ? 20
+                : lead.compGap === 'Medium' ? 11
+                : lead.compGap === 'Low'    ? 3  : 0;
+  const cgReason = lead.compGap === 'High'   ? 'High competitor gap — urgent need'
+                 : lead.compGap === 'Medium' ? 'Medium competitor gap'
+                 : lead.compGap === 'Low'    ? 'Low competitor gap'
+                 : 'Competitor gap unknown';
+
+  const reviews = lead.reviews || 0;
+  const revValue = reviews > 100 ? 15 : reviews > 50 ? 10 : reviews > 20 ? 6 : 1;
+  const revReason = `${reviews} reviews — ${
+    reviews > 100 ? 'established account, large deal potential'
+    : reviews > 50  ? 'active account'
+    : reviews > 20  ? 'growing account'
+    : 'early-stage account'}`;
+
+  const rating = lead.rating || 0;
+  const ratValue = rating >= 4.5 ? 10 : rating >= 4.2 ? 7 : rating >= 4.0 ? 4 : rating >= 3.5 ? 1 : 0;
+  const ratReason = rating >= 4.5 ? `${rating}★ — excellent reputation`
+                  : rating >= 4.2 ? `${rating}★ — strong reputation`
+                  : rating >= 4.0 ? `${rating}★ — good reputation`
+                  : rating >= 3.5 ? `${rating}★ — average reputation`
+                  : rating > 0    ? `${rating}★ — below threshold`
+                  : 'No rating data';
+
+  const bsCount  = intel.buyingSignals?.length || 0;
+  const bsAiValue = Math.min(bsCount * 4, 10);
+  const bsAiReason = bsCount > 0
+    ? `${bsCount} buying signal${bsCount !== 1 ? 's' : ''} detected (${bsCount}×4, capped at 10)`
+    : 'No buying signals logged';
+
+  const actCount = (lead.activities || []).length + (lead.touchLog || []).length;
+  const actValue = actCount > 5 ? 4 : actCount > 2 ? 2 : actCount > 0 ? 1 : 0;
+  const actReason = actCount > 5  ? `${actCount} activities — high engagement`
+                  : actCount > 2  ? `${actCount} activities — moderate engagement`
+                  : actCount > 0  ? `${actCount} activit${actCount === 1 ? 'y' : 'ies'} — early engagement`
+                  : 'No activities logged yet';
+
+  const stageScoreMap = {
+    'Hot':7,'Demo Booked':6,'Contacted':4,'Follow Up':3,
+    'Nurturing':2,'New':1,'Re-engage':1,'Lost':0,'Converted':0,
+  };
+  const stgValue  = stageScoreMap[lead.stage] ?? 1;
+  const stgReason = `Stage: ${lead.stage || 'Unknown'}`;
+
+  const objCount   = intel.objections?.length || 0;
+  const penValue   = -Math.min(objCount * 3, 10);
+  const penReason  = objCount > 0
+    ? `${objCount} objection${objCount !== 1 ? 's' : ''} logged (${objCount}×−3, capped at −10)`
+    : 'No objections — no penalty';
+
+  const contributors = [
+    { id:'visibility', label:'AI Visibility Gap', value:visValue,  max:25, category:'opportunity', reason:visReason  },
+    { id:'compgap',    label:'Competitor Gap',    value:cgValue,   max:20, category:'opportunity', reason:cgReason   },
+    { id:'reviews',    label:'Review Volume',     value:revValue,  max:15, category:'opportunity', reason:revReason  },
+    { id:'rating',     label:'Rating Quality',    value:ratValue,  max:10, category:'opportunity', reason:ratReason  },
+    { id:'signals_ai', label:'Buying Signals',    value:bsAiValue, max:10, category:'intelligence',reason:bsAiReason },
+    { id:'activity',   label:'Activity Level',    value:actValue,  max:4,  category:'engagement',  reason:actReason  },
+    { id:'stage',      label:'Pipeline Stage',    value:stgValue,  max:7,  category:'pipeline',    reason:stgReason  },
+    { id:'objections', label:'Objections',        value:penValue,  max:10, category:'penalty',     reason:penReason  },
+  ].map(c => ({
+    ...c,
+    pct:       Math.round(Math.abs(c.value) / Math.abs(c.max) * 100),
+    isPositive: c.value > 0,
+    isNeutral:  c.value === 0,
+  }));
+
+  // Sort: positives desc by value, then negatives
+  const sorted = [
+    ...contributors.filter(c => c.value > 0).sort((a, b) => b.value - a.value),
+    ...contributors.filter(c => c.value === 0),
+    ...contributors.filter(c => c.value < 0).sort((a, b) => a.value - b.value),
+  ];
+
+  const aiScore = Math.max(0, Math.min(100, Math.round(
+    visValue + cgValue + revValue + ratValue + bsAiValue + actValue + stgValue + penValue
+  )));
+
+  // ── Buying Intent Score contributors ───────────────────────────────────
+  // Mirrors deriveBuyingIntentScore() exactly.
+
+  const stageBaseMap = {
+    'Demo Booked':30,'Hot':25,'Contacted':15,'Follow Up':12,
+    'Nurturing':8,'New':5,'Re-engage':3,'Lost':0,'Converted':0,
+  };
+  const stgBaseValue  = stageBaseMap[lead.stage] ?? 0;
+  const stgBaseReason = `Stage: ${lead.stage || 'Unknown'} (pipeline readiness base)`;
+
+  const bsIntentValue  = Math.min(bsCount * 15, 60);
+  const bsIntentReason = bsCount > 0
+    ? `${bsCount} buying signal${bsCount !== 1 ? 's' : ''} (${bsCount}×15, capped at 60)`
+    : 'No buying signals — no intent boost';
+
+  const objIntentValue  = -Math.min(objCount * 12, 36);
+  const objIntentReason = objCount > 0
+    ? `${objCount} objection${objCount !== 1 ? 's' : ''} (${objCount}×−12, capped at −36)`
+    : 'No objections — no intent penalty';
+
+  const buyingContributors = [
+    { id:'stage_base',    label:'Pipeline Stage',  value:stgBaseValue,   max:30, category:'pipeline',    reason:stgBaseReason  },
+    { id:'buying_signals',label:'Buying Signals',  value:bsIntentValue,  max:60, category:'intelligence', reason:bsIntentReason },
+    { id:'obj_penalty',   label:'Objections',      value:objIntentValue, max:36, category:'penalty',      reason:objIntentReason},
+  ].map(c => ({
+    ...c,
+    pct:       Math.round(Math.abs(c.value) / Math.abs(c.max) * 100),
+    isPositive: c.value > 0,
+    isNeutral:  c.value === 0,
+  }));
+
+  const buyingIntentScore = Math.max(0, Math.min(100, Math.round(
+    stgBaseValue + bsIntentValue + objIntentValue
+  )));
+
+  return { aiScore, contributors: sorted, buyingIntentScore, buyingContributors, timestamp: now };
+}
+
+function _emptyBreakdown() {
+  return {
+    aiScore: 0, contributors: [],
+    buyingIntentScore: 0, buyingContributors: [],
+    timestamp: new Date().toISOString(),
+  };
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
