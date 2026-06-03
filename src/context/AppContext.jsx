@@ -5,7 +5,7 @@ import { createContext, useContext, useState, useCallback, useEffect, useMemo } 
 import { MOCK_LEADS, MOCK_CADENCES } from '../data/mockData';
 import { SEQ_PLAN } from '../constants/cadencePlan';
 import { migrateLead, createActivity, createAccountKnowledge, mergeAccountKnowledge, applyScore, CURRENT_SCORE_VERSION, INTELLIGENCE_REJECTED_FIELDS } from '../data/schema';
-import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
+import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay, getActivePlan } from '../utils/cadenceUtils';
 import {
   applyAKReview,
   confirmAllPending,
@@ -276,7 +276,13 @@ export function AppProvider({ children }) {
 
   // ── Cadence Execution ──
   const markStepComplete = useCallback((leadId, stepKey, cadenceDay) => {
-    const step    = SEQ_PLAN.find(s => s.key === stepKey);
+    // Phase 9A-1: use the lead's active plan (cadenceSteps || SEQ_PLAN).
+    // Previously this always used SEQ_PLAN, causing custom cadence steps
+    // (whose keys are not in SEQ_PLAN) to produce undefined step labels and
+    // malformed activity entries.
+    const lead = leads.find(l => l.id === leadId);
+    const plan = lead ? getActivePlan(lead) : SEQ_PLAN;
+    const step = plan.find(s => s.key === stepKey);
     const summary = `${step?.label || stepKey} completed — Day ${cadenceDay}, ${step?.channel || 'Unknown'}`;
 
     setLeads(ls => ls.map(l => {
@@ -291,15 +297,19 @@ export function AppProvider({ children }) {
       stepChannel: step?.channel  || 'Unknown',
       cadenceDay,
     });
-  }, [addActivity]);
+  }, [leads, addActivity]);
 
   const advanceCadenceDay = useCallback((leadId) => {
     setLeads(ls => {
       const lead = ls.find(l => l.id === leadId);
       if (!lead || !isDayComplete(lead) || isCadenceComplete(lead)) return ls;
 
-      const nextDay    = nextCadenceDay(lead.cadenceDay);
-      const nextSteps  = SEQ_PLAN.filter(s => s.day === nextDay);
+      // Phase 9A-1: use the lead's active plan (cadenceSteps || SEQ_PLAN).
+      // Previously always used SEQ_PLAN, producing empty nextSteps and a
+      // generic 'Day N' label for leads on custom cadences.
+      const plan     = getActivePlan(lead);
+      const nextDay  = nextCadenceDay(lead.cadenceDay, plan);
+      const nextSteps = plan.filter(s => s.day === nextDay);
       const nextAction = nextSteps.length > 0
         ? `Day ${nextDay}: ${nextSteps[0].label}`
         : `Day ${nextDay}`;

@@ -1393,7 +1393,7 @@ function MemoryTab({ lead }) {
 
 /* ─── Tab: Cadence ─── */
 function CadenceTab({ lead }) {
-  const { markStepComplete, advanceCadenceDay, openCopilot, addActivity } = useApp();
+  const { markStepComplete, advanceCadenceDay, openCopilot, addActivity, updateLead } = useApp();
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const CHANNEL_TO_COPILOT_MODE = { Email:'email', SMS:'sms', VM:'voicemail', LinkedIn:'linkedin' };
 
@@ -1402,33 +1402,55 @@ function CadenceTab({ lead }) {
   const [stepPaste,     setStepPaste]     = useState('');
   const [stepSaved,     setStepSaved]     = useState(null);
 
-  const currentDay   = lead.cadenceDay  || 0;
-  const totalDays    = lead.cadenceTotal || 7;
-  const pendingToday = getPendingSteps(lead);
-  const dayDone      = isDayComplete(lead);
-  const cadDone      = isCadenceComplete(lead);
+  const currentDay = lead.cadenceDay || 0;
 
-  // Use the cadence steps assigned to this lead, falling back to SEQ_PLAN for
-  // leads that pre-date cadence assignment or are using the default sequence.
-  const activePlan    = (lead.cadenceSteps?.length ? lead.cadenceSteps : SEQ_PLAN);
+  // Phase 9A-1: use the lead's active plan (cadenceSteps || SEQ_PLAN).
+  // totalDays falls back to activePlan.length so custom cadences show
+  // the correct total rather than always showing 7.
+  const activePlan     = (lead.cadenceSteps?.length ? lead.cadenceSteps : SEQ_PLAN);
+  const totalDays      = lead.cadenceTotal || activePlan.length || 7;
+  const pendingToday   = getPendingSteps(lead);
+  const dayDone        = isDayComplete(lead);
+  const cadDone        = isCadenceComplete(lead);
   const stepsInCadence = activePlan.filter(s => s.day <= totalDays).sort((a, b) => a.day - b.day);
+
+  // Phase 9A-1: pass activePlan to nextCadenceDay so custom cadence day
+  // advancement resolves correctly against the assigned plan, not SEQ_PLAN.
+  const nextDay = nextCadenceDay(currentDay, activePlan);
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
 
       {/* Progress header */}
       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-        <span style={{ fontSize:13, fontWeight:600, color:T1 }}>
-          {cadDone ? 'Cadence Complete ✓' : `Day ${currentDay} of ${totalDays}`}
-        </span>
+        <div style={{ display:'flex', flexDirection:'column', gap:2 }}>
+          <span style={{ fontSize:13, fontWeight:600, color:T1 }}>
+            {cadDone ? 'Cadence Complete ✓' : currentDay === 0 ? (lead.cadenceName || 'Cadence Assigned') : `Day ${currentDay} of ${totalDays}`}
+          </span>
+          {lead.cadenceName && (
+            <span style={{ fontSize:10, color:T2 }}>{lead.cadenceName}</span>
+          )}
+        </div>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+          {/* Phase 9A-1: Start Cadence button — shown when a cadence is assigned
+              but not yet started (cadenceDay === 0). Sets cadenceDay to 1 so
+              CadenceTab renders the first day's steps as pending. */}
+          {currentDay === 0 && stepsInCadence.length > 0 && (
+            <button
+              onClick={() => updateLead(lead.id, { cadenceDay: 1 })}
+              style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)', transition:'background 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.background='#4828B5'}
+              onMouseLeave={e => e.currentTarget.style.background='#5B3FC8'}>
+              ▶ Start Cadence
+            </button>
+          )}
           {!cadDone && dayDone && currentDay > 0 && (
             <button
               onClick={() => advanceCadenceDay(lead.id)}
               style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)', transition:'background 0.15s' }}
               onMouseEnter={e => e.currentTarget.style.background='#4828B5'}
               onMouseLeave={e => e.currentTarget.style.background='#5B3FC8'}>
-              Advance to Day {nextCadenceDay(currentDay)} →
+              Advance to Day {nextDay} →
             </button>
           )}
           {!cadDone && !dayDone && currentDay > 0 && (
@@ -1581,7 +1603,10 @@ function CadenceTab({ lead }) {
       {/* Not started state */}
       {currentDay === 0 && (
         <div style={{ textAlign:'center', padding:'32px', color:T2, fontSize:12 }}>
-          No active cadence day. Set <strong style={{ color:T1 }}>cadenceDay</strong> to 1 to begin execution.
+          {stepsInCadence.length > 0
+            ? <><strong style={{ color:T1 }}>{lead.cadenceName || 'Cadence'}</strong> is assigned. Click <strong style={{ color:'#7C5CE8' }}>▶ Start Cadence</strong> above to begin Day 1.</>
+            : <>No cadence assigned. Apply one from the <strong style={{ color:T1 }}>Cadences</strong> view.</>
+          }
         </div>
       )}
     </div>

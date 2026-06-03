@@ -232,9 +232,9 @@ function EditPanel({ step, onChange, onClose, dark }) {
 }
 
 const INITIAL_STEPS = [
-  { id:1, name:'AI Visibility Intro', channel:'Email',    day:1, type:'Automated', subject:'Quick win to get {{company}} more reviews', body:'Hi {{first_name}},\n\nI noticed {{company}} has incredible reviews but low visibility in local AI searches like ChatGPT and Gemini.\n\nWe\'ve helped similar businesses in {{city}} boost their AI search presence by optimizing their review profile structure.\n\nOpen to a quick chat next week to share how?', ifThen:null, stats:{ Sent:'1,204', Open:'42%', Reply:'12%' } },
-  { id:2, name:'Connect & Engage',     channel:'LinkedIn', day:3, type:'Manual',    subject:'', body:'',          ifThen:{ condition:'LinkedIn Accepted', yes:'Move to Demo Booked', no:'Send Email Follow-up' }, stats:{ Sent:'850', Accepted:'28%' } },
-  { id:3, name:'Competitor Proof',     channel:'Email',    day:5, type:'Automated', subject:'How {{city}} businesses are beating competitors with AI', body:'', ifThen:null, stats:{ Sent:'620', Open:'38%', Reply:'9%'  } },
+  { id:1, key:'E1',    name:'AI Visibility Intro', channel:'Email',    day:1, type:'Automated', subject:'Quick win to get {{company}} more reviews', body:'Hi {{first_name}},\n\nI noticed {{company}} has incredible reviews but low visibility in local AI searches like ChatGPT and Gemini.\n\nWe\'ve helped similar businesses in {{city}} boost their AI search presence by optimizing their review profile structure.\n\nOpen to a quick chat next week to share how?', ifThen:null, stats:{ Sent:'1,204', Open:'42%', Reply:'12%' } },
+  { id:2, key:'LI1',   name:'Connect & Engage',     channel:'LinkedIn', day:3, type:'Manual',    subject:'', body:'',          ifThen:{ condition:'LinkedIn Accepted', yes:'Move to Demo Booked', no:'Send Email Follow-up' }, stats:{ Sent:'850', Accepted:'28%' } },
+  { id:3, key:'E2',    name:'Competitor Proof',     channel:'Email',    day:5, type:'Automated', subject:'How {{city}} businesses are beating competitors with AI', body:'', ifThen:null, stats:{ Sent:'620', Open:'38%', Reply:'9%'  } },
 ];
 
 const TOOLBOX = [
@@ -286,8 +286,26 @@ export default function Cadences() {
   const updateStep = (id, patch) => setSteps(ss=>ss.map(s=>s.id===id?{...s,...patch}:s));
   const deleteStep = (id) => { setSteps(ss=>ss.filter(s=>s.id!==id)); if(steps[activeStep]?.id===id) setActiveStep(0); };
   const addStep    = (channel='Email') => {
-    const newStep = { id:Date.now(), name:`${channel} Step`, channel, day: steps.length+1, type:'Automated', subject:'', body:'', ifThen:null, stats:null };
-    setSteps(ss=>[...ss, newStep]);
+    // Phase 9A-1: generate a stable string key for custom steps.
+    // Previously steps had no `key` field — only numeric `id`.
+    // markStepComplete(leadId, stepKey) uses step.key to look up the step
+    // in the active plan and to write seqLog[stepKey]. Without a key,
+    // seqLog[undefined] was written and the step could never be found.
+    const stepId  = Date.now();
+    const stepKey = `custom_${channel.toLowerCase()}_${stepId}`;
+    const newStep = {
+      id:      stepId,
+      key:     stepKey,
+      name:    `${channel} Step`,
+      channel,
+      day:     steps.length + 1,
+      type:    'Automated',
+      subject: '',
+      body:    '',
+      ifThen:  null,
+      stats:   null,
+    };
+    setSteps(ss => [...ss, newStep]);
     setActiveStep(steps.length);
   };
 
