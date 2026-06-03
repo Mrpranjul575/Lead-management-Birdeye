@@ -1,4 +1,5 @@
 import { SheetsAdapter } from '../services/sheetsAdapter';
+import { enrichLead } from '../services/enrichLead';
 import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { MOCK_LEADS, MOCK_CADENCES } from '../data/mockData';
 import { SEQ_PLAN } from '../constants/cadencePlan';
@@ -324,6 +325,50 @@ export function AppProvider({ children }) {
   // ── Settings ──
   const updateSettings = useCallback((patch) => setSettings(s => ({...s,...patch})), []);
 
+  // ── AI Enrichment ──────────────────────────────────────────────────────────
+  //
+  // enrichSingleLead(leadId)
+  //   Calls enrichLead() with the current lead snapshot and settings.
+  //   On success: applies intelligence patch via updateIntelligence, logs activity.
+  //   Returns true on success, false on failure or missing key.
+  //   Never throws — all errors are swallowed inside enrichLead().
+  //
+  // batchEnrichLeads(leadIds, onProgress?)
+  //   Enriches multiple leads sequentially with a 500ms delay between calls
+  //   to avoid Gemini rate limits. onProgress(completed, total) fires after each.
+  //   Returns { enriched: number, failed: number }.
+
+  const enrichSingleLead = useCallback(async (leadId) => {
+    // Snapshot the lead and settings at call time — do not close over stale state
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead) return false;
+
+    const result = await enrichLead(lead, settings);
+    if (!result) return false;
+
+    updateIntelligence(leadId, result);
+    addActivity(leadId, 'AI Generation', 'Lead enriched by Gemini', { source: 'gemini' });
+    return true;
+  }, [leads, settings, updateIntelligence, addActivity]);
+
+  const batchEnrichLeads = useCallback(async (leadIds, onProgress) => {
+    let enriched = 0;
+    let failed   = 0;
+    const total  = leadIds.length;
+
+    for (const id of leadIds) {
+      const ok = await enrichSingleLead(id);
+      if (ok) enriched++; else failed++;
+      if (typeof onProgress === 'function') onProgress(enriched + failed, total);
+      // 500ms delay between calls — avoids Gemini rate limits
+      if (enriched + failed < total) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    return { enriched, failed };
+  }, [enrichSingleLead]);
+
   return (
     <AppCtx.Provider value={{
       theme, toggleTheme,
@@ -341,6 +386,7 @@ export function AppProvider({ children }) {
       copilot, openCopilot, closeCopilot,
       search, setSearch,
       settings, updateSettings,
+      enrichSingleLead, batchEnrichLeads,
       clipSearch, setClipSearch,
     }}>
       {children}

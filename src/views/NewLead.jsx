@@ -163,7 +163,7 @@ Keyword: dental austin
 Competitor is Glow Dental (412 reviews)`;
 
 export default function NewLead() {
-  const { theme, addLead, setView } = useApp();
+  const { theme, addLead, setView, enrichSingleLead, settings } = useApp();
   const dark = theme==='dark';
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const S1=dark?'#161B22':'#FFFFFF', S2=dark?'#0D1117':'#F8F9FA';
@@ -213,7 +213,7 @@ export default function NewLead() {
   };
 
   const handleSave = () => {
-    addLead({
+    const newLead = addLead({
       ...editing,
       reviews:  parseInt(editing.reviews)||0,
       rating:   0, aiVisibility:0,
@@ -225,6 +225,10 @@ export default function NewLead() {
       aeNotes,
     });
     setSaved(true);
+    // Fire enrichment in the background — best-effort, never blocks save or redirect
+    if (settings?.aiProvider === 'gemini' && settings?.geminiKey) {
+      enrichSingleLead(newLead.id).catch(() => {});
+    }
     setTimeout(()=>setView('workqueue'), 1400);
   };
 
