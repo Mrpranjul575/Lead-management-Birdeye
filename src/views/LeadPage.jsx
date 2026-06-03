@@ -678,35 +678,67 @@ function ScoreHistoryPanel({ lead }) {
 function ScoreExplainerTab({ lead }) {
   const breakdown = buildScoreBreakdown(lead);
   const intel     = lead.intelligence || {};
-  const B1 = 'var(--b1)';
+  const B1 = 'var(--b1)', T2 = 'var(--t2)';
+
+  // ── Provenance helpers ─────────────────────────────────────────────────
+  // scoreLastCalculatedAt: set on every updateIntelligence / updateLead call
+  // that runs applyScore(), regardless of whether the score moved. Mirrors the
+  // geminiEnrichedAt pattern from Phase 10C — transparent, no friction.
+  //
+  // Derivation order:
+  //   1. intelligence.scoreLastCalculatedAt  — most precise, set by AppContext
+  //   2. scoreHistory[0].timestamp           — fallback: last recorded change
+  //   3. null                                — lead has never been scored via app
+  const scoreLastCalcAt =
+    intel.scoreLastCalculatedAt ||
+    intel.scoreHistory?.[0]?.timestamp ||
+    null;
+
+  function _relTime(iso) {
+    if (!iso) return null;
+    const ms  = Date.now() - new Date(iso).getTime();
+    const min = Math.floor(ms / 60000);
+    const hr  = Math.floor(min / 60);
+    const day = Math.floor(hr / 24);
+    if (day > 0)  return `${day}d ago`;
+    if (hr  > 0)  return `${hr}h ago`;
+    if (min > 0)  return `${min}m ago`;
+    return 'just now';
+  }
+
+  const scoreAgo = _relTime(scoreLastCalcAt);
 
   const geminiProvenance = intel.geminiEnrichedAt
-    ? `✨ Signals last enriched ${(() => {
-        const ms  = Date.now() - new Date(intel.geminiEnrichedAt).getTime();
-        const min = Math.floor(ms / 60000);
-        const hr  = Math.floor(min / 60);
-        const day = Math.floor(hr / 24);
-        if (day > 0)  return `${day}d ago`;
-        if (hr  > 0)  return `${hr}h ago`;
-        if (min > 0)  return `${min}m ago`;
-        return 'just now';
-      })()}`
+    ? `✨ Signals last enriched ${_relTime(intel.geminiEnrichedAt)}`
     : null;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
 
-      {/* Explainer header */}
+      {/* ── Explainer header + score provenance ─────────────────────── */}
       <div style={{
         padding:'11px 14px', borderRadius:10,
         background:'rgba(91,63,200,0.06)', border:'1px solid rgba(91,63,200,0.18)',
         display:'flex', gap:10, alignItems:'flex-start',
       }}>
         <span style={{ fontSize:16 }}>📊</span>
-        <div>
-          <div style={{ fontSize:12, fontWeight:700, color:'#7C5CE8', marginBottom:3 }}>Score Explainer</div>
-          <div style={{ fontSize:11, color:'var(--t2)', lineHeight:1.6 }}>
-            Two independent scores. <strong style={{ color:'var(--t1)' }}>Opportunity Score</strong> measures
+        <div style={{ flex:1 }}>
+          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
+            <span style={{ fontSize:12, fontWeight:700, color:'#7C5CE8' }}>Score Explainer</span>
+            {/* Score provenance pill — mirrors geminiEnrichedAt badge in AI Intelligence tab */}
+            {scoreAgo && (
+              <span style={{
+                fontSize:9, fontWeight:700, padding:'2px 8px', borderRadius:99,
+                background:'rgba(91,63,200,0.12)', color:'#7C5CE8',
+                border:'1px solid rgba(91,63,200,0.2)',
+              }}>
+                Score last recalculated {scoreAgo}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize:11, color:T2, lineHeight:1.6 }}>
+            Two independent scores.{' '}
+            <strong style={{ color:'var(--t1)' }}>Opportunity Score</strong> measures
             external market potential — how big the AI visibility and competitor gap is.{' '}
             <strong style={{ color:'var(--t1)' }}>Buying Intent Score</strong> measures
             readiness — how likely this specific contact is to convert.

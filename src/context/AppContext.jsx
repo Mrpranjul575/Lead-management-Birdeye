@@ -134,13 +134,19 @@ export function AppProvider({ children }) {
         if (l.id !== id) return l;
         const updated   = applyScore({ ...l, ...patch });
         // Phase 11: record score history snapshot when aiScore moves.
+        // Same ordering/retention/dedup rules as updateIntelligence — see that
+        // function for the full comment. scoreLastCalculatedAt is always written
+        // here (whether score moves or not) so provenance is available on stage
+        // changes even when the resulting score is the same number.
+        const now      = new Date().toISOString();
+        const intelBase = { ...(updated.intelligence || {}), scoreLastCalculatedAt: now };
         if (updated.aiScore !== (l.aiScore ?? 0)) {
           const trigger  = patch.stage ? `Stage → ${patch.stage}` : 'Lead fields updated';
-          const snapshot = { aiScore: updated.aiScore, timestamp: new Date().toISOString(), trigger };
-          const history  = [snapshot, ...(updated.intelligence?.scoreHistory || [])].slice(0, 50);
-          return { ...updated, intelligence: { ...updated.intelligence, scoreHistory: history } };
+          const snapshot = { aiScore: updated.aiScore, timestamp: now, trigger };
+          const history  = [snapshot, ...(intelBase.scoreHistory || [])].slice(0, 50);
+          return { ...updated, intelligence: { ...intelBase, scoreHistory: history } };
         }
-        return updated;
+        return { ...updated, intelligence: intelBase };
       });
     });
     // Phase 10D: log a Status Change activity when stage is updated.
@@ -216,17 +222,38 @@ export function AppProvider({ children }) {
     if (Object.keys(safePatch).length === 0) return;
     setLeads(ls => ls.map(l => {
       if (l.id !== leadId) return l;
-      const updated = applyScore({ ...l, intelligence: { ...l.intelligence, ...safePatch, lastUpdated: new Date().toISOString() } });
-      // Phase 11: append to scoreHistory when score moves.
-      // Trigger label derived from patch keys so history entries are self-describing.
+      const now     = new Date().toISOString();
+      const updated = applyScore({ ...l, intelligence: { ...l.intelligence, ...safePatch, lastUpdated: now } });
+
+      // Phase 11 — Score history rules:
+      //   ORDERING  : newest-first (prepend). scoreHistory[0] is always the most
+      //               recent snapshot. ScoreHistoryPanel reads this order directly.
+      //   RETENTION : capped at 50 entries (slice). Oldest entries are dropped
+      //               silently — this is analytical history, not a legal audit log.
+      //   DEDUP     : guarded by `updated.aiScore !== prevScore`. A patch that
+      //               does not move the score produces no snapshot. This guarantees
+      //               a single enrichSingleLead() call → single setLeads pass →
+      //               at most one snapshot, regardless of how many fields the patch
+      //               contains. The two-pass pattern in updateLead (score pass +
+      //               activity pass) cannot double-fire because the second pass
+      //               only prepends to activities[] and never touches intelligence.
+      //   PROVENANCE: scoreLastCalculatedAt is set to `now` on every snapshot,
+      //               whether or not the score moved. This allows the Score
+      //               Explainer tab to always show "Score last recalculated X ago"
+      //               even for leads whose score is stable across enrichments.
+      //               It mirrors the geminiEnrichedAt pattern from Phase 10C.
       const prevScore = l.aiScore ?? 0;
+      const intelWithProvenance = {
+        ...updated.intelligence,
+        scoreLastCalculatedAt: now,
+      };
       if (updated.aiScore !== prevScore) {
         const trigger  = _scoreTriggerLabel(safePatch);
-        const snapshot = { aiScore: updated.aiScore, timestamp: new Date().toISOString(), trigger };
-        const history  = [snapshot, ...(updated.intelligence?.scoreHistory || [])].slice(0, 50);
-        return { ...updated, intelligence: { ...updated.intelligence, scoreHistory: history } };
+        const snapshot = { aiScore: updated.aiScore, timestamp: now, trigger };
+        const history  = [snapshot, ...(intelWithProvenance.scoreHistory || [])].slice(0, 50);
+        return { ...updated, intelligence: { ...intelWithProvenance, scoreHistory: history } };
       }
-      return updated;
+      return { ...updated, intelligence: intelWithProvenance };
     }));
   }, []);
 
