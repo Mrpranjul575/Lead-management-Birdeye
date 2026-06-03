@@ -87,10 +87,41 @@ export const SheetsAdapter = {
   },
 
   /**
-   * Push AE notes update — re-pushes the full lead row.
+   * Push AE notes update — targeted column update, not a full row append.
+   *
+   * Phase 8D-2B: sends action: 'updateAENotes' to the Apps Script.
+   * The Apps Script finds the row by externalId (primary) or email (fallback)
+   * and updates the aeNotes column only — never appends a new row.
+   *
+   * Failure behavior: returns { ok: false } silently — the app continues
+   * normally. AE Notes are saved in localStorage regardless of sheet outcome.
+   *
+   * Backward compatibility: until the Apps Script handler for 'updateAENotes'
+   * is deployed, the endpoint will return { success: false } or ignore the
+   * action — caught by .catch(() => {}) at every call site. No duplicate rows
+   * are created (unlike the previous pushLead() behavior).
+   *
+   * Call site (AENotesTab) is unchanged:
+   *   SheetsAdapter.pushAENotes({ ...lead, aeNotes: cleaned }).catch(() => {})
+   * The inline aeNotes: cleaned override is read by lead.aeNotes below.
    */
   async pushAENotes(lead) {
-    return this.pushLead({ ...lead });
+    try {
+      const res  = await fetch(SHEETS_URL, {
+        method: 'POST',
+        body:   JSON.stringify({
+          action:     'updateAENotes',
+          externalId: lead.externalId || '',
+          email:      lead.email      || '',
+          aeNotes:    lead.aeNotes    || '',
+          savedAt:    new Date().toISOString(),
+        }),
+      });
+      const json = await res.json();
+      return { ok: !!json.success };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
   },
 
   /**
@@ -148,22 +179,76 @@ export const SheetsAdapter = {
   },
 
   /**
-   * updateLeadFields — Phase 8D-2A stub.
+   * updateLeadFields — Phase 8D-2B: targeted row-update by externalId or email.
    *
-   * Reserved for Phase 8D-2B when the Apps Script supports action: 'updateLead'.
-   * Will perform a targeted row-update by externalId (primary) or email (fallback)
-   * instead of appending a new row.
+   * Sends action: 'updateLead' to the Apps Script, which finds the existing row
+   * by externalId (primary) or email (fallback) and updates only the specified
+   * profile fields in-place — never appends a new row.
    *
-   * Currently returns { ok: false } immediately — no network call, no side effects.
-   * No call sites exist yet. This stub reserves the architecture contract.
+   * Failure behavior: returns { ok: false } — caller uses .catch(() => {}).
+   * No call sites are wired yet (Phase 8D-2C after Apps Script validation).
    *
-   * @param {object} lead   — the lead object (must have externalId and/or email)
+   * @param {object} lead   — lead object with externalId and/or email
    * @param {object} fields — profile fields to update (business, phone, city, etc.)
-   * @returns {{ ok: boolean, reason?: string }}
+   * @returns {{ ok: boolean, error?: string }}
    */
   async updateLeadFields(lead, fields) {
-    // Phase 8D-2B: replace with actual POST to SHEETS_URL with action: 'updateLead'
-    return { ok: false, reason: 'Apps Script not yet implemented' };
+    try {
+      const res  = await fetch(SHEETS_URL, {
+        method: 'POST',
+        body:   JSON.stringify({
+          action:     'updateLead',
+          externalId: lead.externalId || '',
+          email:      lead.email      || '',
+          fields:     fields          || {},
+        }),
+      });
+      const json = await res.json();
+      return { ok: !!json.success, error: json.error };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  },
+
+  /**
+   * logContent — Phase 8D-2B stub.
+   *
+   * Reserved for future opt-in content logging to a dedicated Generated Content
+   * tab in the sheet. Disabled by default — generated emails, SMS, voicemails,
+   * and LinkedIn messages are not automatically exported.
+   *
+   * A future Settings toggle (settings.logGeneratedContent) may activate this.
+   * No call sites exist. No network calls made.
+   *
+   * When activated, sends action: 'logContent' to a separate Apps Script handler
+   * that appends to the Generated Content tab only — never touches lead rows.
+   *
+   * @param {object} lead    — lead context (externalId, email, businessName)
+   * @param {object} content — { type, subject, body, generatedAt, source }
+   * @returns {{ ok: boolean, reason?: string }}
+   */
+  async logContent(lead, content) {
+    // Phase 8D-2C: replace with POST action: 'logContent' when Apps Script tab exists
+    // and settings.logGeneratedContent === true at the call site.
+    return { ok: false, reason: 'Disabled by default — opt-in not yet configured' };
+  },
+
+  /**
+   * logCadence — Phase 8D-2B stub.
+   *
+   * Reserved for future cadence export to a dedicated Cadences tab in the sheet.
+   * Upserts by cadenceId — update if exists, append if new.
+   * No call sites exist. No network calls made.
+   *
+   * When activated, sends action: 'logCadence' to a separate Apps Script handler
+   * that writes to the Cadences tab only — never touches lead rows.
+   *
+   * @param {object} cadence — { id, name, steps, createdAt, updatedAt }
+   * @returns {{ ok: boolean, reason?: string }}
+   */
+  async logCadence(cadence) {
+    // Phase 8D-2C: replace with POST action: 'logCadence' when Apps Script tab exists.
+    return { ok: false, reason: 'Apps Script Cadences tab not yet implemented' };
   },
 };
 
