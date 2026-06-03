@@ -317,9 +317,9 @@ export default function ReEngage() {
                             <Send size={11}/> Send Sequence
                           </button>
                           <button
-                            onClick={() => openCopilot('email', lead)}
+                            onClick={() => openCopilot('reEngage', lead)}
                             style={{ display:'flex', alignItems:'center', gap:5, padding:'6px 10px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color:'#7C5CE8', fontSize:11, cursor:'pointer', fontFamily:'inherit' }}
-                            title="Generate re-engage email with AI Copilot">
+                            title="Generate re-engage hook with AI Copilot (buildReEngagePrompt)">
                             <Zap size={11}/>
                           </button>
                         </>

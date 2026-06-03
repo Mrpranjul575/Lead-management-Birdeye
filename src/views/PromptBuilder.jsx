@@ -8,10 +8,11 @@ const PROMPT_ACTIONS = [
   { mode: 'aeNotes',     label: 'Generate AE Notes',   desc: 'Handoff summary for Account Executives',              status: 'active' },
   { mode: 'sms',         label: 'SMS Hook',             desc: 'Brief mobile-first conversation starters',           status: 'active' },
   { mode: 'reEngage',    label: 'Re-engage',            desc: 'Wake up dormant leads with value propositions',      status: 'active' },
-  { mode: 'linkedin',    label: 'LinkedIn DM',          desc: 'Social-selling scripts for InMail',                  status: 'draft'  },
+  { mode: 'linkedin',    label: 'LinkedIn DM',          desc: 'Social-selling scripts for InMail',                  status: 'active' },
   { mode: 'voicemail',   label: 'Voicemail Script',     desc: 'High-conversion voicemail patterns',                 status: 'active' },
-  { mode: 'situational', label: 'Situational',          desc: 'Context-aware outreach for specific triggers',       status: 'draft'  },
-  { mode: 'cadence',     label: 'Cadence Briefing',     desc: 'Next step recommendations in active sequence',       status: 'draft'  },
+  { mode: 'situational', label: 'Situational',          desc: 'Context-aware outreach for specific triggers',       status: 'active' },
+  { mode: 'cadence',     label: 'Cadence Briefing',     desc: 'Next step recommendations in active sequence',       status: 'active' },
+  { mode: 'cadenceStep', label: 'Cadence Step',         desc: 'Channel-specific step generation for cadence days',  status: 'active' },
   { mode: 'notes',       label: 'Call Notes AI',        desc: 'Intelligence extraction from call notes',            status: 'active' },
 ];
 
@@ -129,6 +130,24 @@ Extract and return JSON with:
 - nextBestAction (string)
 - leadTemperature (Cold / Warm / Hot)
 - sentiment (Positive / Neutral / Negative)`,
+
+  cadenceStep: `You are Paul, a Senior SDR at Birdeye. Write cadence step content for {{first_name}} at {{biz_name}}.
+
+Lead context:
+- Industry: {{industry}} | City: {{city}}
+- AI Score: {{ai_score}} | Reviews: {{reviews}}
+- Competitor: {{competitor_1}} | Pain: {{pain_point_1}}
+- Last Touch: {{last_touch}}
+
+Rules:
+- Reference something specific about {{biz_name}}
+- Lead with pain point, not product features
+- End with one clear low-friction CTA
+- Email: Subject line first, then body under 100 words
+- SMS: under 160 characters, no emoji overload
+- Sign off: Paul | SDR, Birdeye
+
+Output the step content only. Nothing else.`,
 };
 
 

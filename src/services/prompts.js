@@ -524,8 +524,24 @@ If no reply: [action]`;
 }
 
 // ─── Cadence step email/SMS generator ────────────────────────────────────────
+// Phase 10B-1: added getPromptOverride('cadenceStep') support.
+// The SDR can now customise cadence step generation via Prompt Builder.
+// Template variables available: {{first_name}}, {{biz_name}}, {{city}},
+//   {{competitor_1}}, {{pain_point_1}}, {{last_touch}}, etc.
+// Step-specific context (channel, day, angle) is injected after the override.
 export function buildCadenceStepPrompt(lead, step) {
   if (!lead) return 'No lead selected.';
+  const override = getPromptOverride('cadenceStep');
+  if (override) {
+    const interpolated = interpolatePrompt(override, lead);
+    // Append step-specific context so overrides still benefit from it
+    return `${interpolated}
+
+Step context:
+Channel: ${step.channel || 'Email'}
+Day: ${step.day || 1}
+Angle: ${step.angle || step.label || step.name || 'Value-add outreach'}`;
+  }
   const ctx = buildLeadContext(lead);
   return `${ctx}
 
@@ -552,11 +568,29 @@ export function buildReEngagePrompt(lead, signal) {
   if (override) return interpolatePrompt(override, lead);
   const ctx = buildLeadContext(lead);
 
+  // Phase 10B-1: derive a specific signal when none is passed externally.
+  // buildPrompt('reEngage', lead) calls this without a signal argument.
+  // Previously fell back to generic 'Lead showing new activity'. Now derives
+  // a meaningful signal from lead fields so rule #1 ("REFERENCES THE SIGNAL
+  // directly") produces a specific hook instead of a generic one.
+  // isConfirmed is already imported at the top of this file.
+  const resolvedSignal = signal || (() => {
+    const akComps = (lead.accountKnowledge?.competitors || []).filter(isConfirmed);
+    const comp = akComps[0]?.name
+      || lead.intelligence?.competitors?.[0]
+      || lead.competitor;
+    if (comp) return `Competitor active — ${comp} may be gaining ground while ${lead.business} is cold`;
+    if (lead.intent === 'AI Visibility') return `AI visibility gap — ${lead.aiVisibility ?? 0}% vs ~35% industry average`;
+    if (lead.intent === 'Review Growth') return `Review gap — ${lead.reviews ?? 0} reviews, below competitive threshold`;
+    if (lead.intent === 'Listings')      return `Listing accuracy issue — inconsistent data across directories`;
+    return 'Lead re-entered consideration — re-engagement window is open';
+  })();
+
   return `${PERSONA}
 
 ${ctx}
 
-NEW SIGNAL DETECTED: ${signal || 'Lead showing new activity'}
+NEW SIGNAL DETECTED: ${resolvedSignal}
 
 ═══ TASK: WRITE A RE-ENGAGEMENT HOOK ═══
 This lead went cold but just showed a new intent signal. Write a re-engagement message that:
@@ -752,13 +786,15 @@ export function normalizeMode(mode) {
 export function buildPrompt(mode, lead) {
   const m = normalizeMode(mode);
   switch (m) {
-    case 'email':      return buildEmailPrompt(lead);
-    case 'sms':        return buildSMSPrompt(lead);
-    case 'voicemail':  return buildVoicemailPrompt(lead);
-    case 'linkedin':   return buildLinkedInPrompt(lead);
-    case 'situational':return buildSituationalPrompt(lead);
-    case 'cadence':    return buildCadencePrompt(lead);
-    case 'notes':      return buildNotesPrompt(lead);
-    default:           return buildEmailPrompt(lead);
+    case 'email':       return buildEmailPrompt(lead);
+    case 'sms':         return buildSMSPrompt(lead);
+    case 'voicemail':   return buildVoicemailPrompt(lead);
+    case 'linkedin':    return buildLinkedInPrompt(lead);
+    case 'situational': return buildSituationalPrompt(lead);
+    case 'cadence':     return buildCadencePrompt(lead);
+    case 'notes':       return buildNotesPrompt(lead);
+    case 'reengage':    return buildReEngagePrompt(lead);         // Phase 10B-1: wire dead export
+    case 'cadencestep': return buildCadenceStepPrompt(lead, {}); // Phase 10B-1: add to router
+    default:            return buildEmailPrompt(lead);
   }
 }
