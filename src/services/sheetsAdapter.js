@@ -127,6 +127,27 @@ export const SheetsAdapter = {
       return { ok: false, error: e.message };
     }
   },
+
+  /**
+   * Read all leads from the connected Google Sheet.
+   * Returns { ok: true, data: lead[] } on success.
+   * Returns { ok: false, error: string, data: [] } on failure.
+   */
+  async readLeads(settings) {
+    const { sheetsId, sheetsToken } = settings || {};
+    if (!sheetsId || !sheetsToken) {
+      return { ok: false, error: 'No Sheets ID or token configured', data: [] };
+    }
+    try {
+      const res  = await fetch(`${SHEETS_URL}?action=readLeads&sheetsId=${encodeURIComponent(sheetsId)}`);
+      const json = await res.json();
+      if (json.error) return { ok: false, error: json.error, data: [] };
+      const rows = Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : []);
+      return { ok: true, data: rows };
+    } catch (e) {
+      return { ok: false, error: e.message, data: [] };
+    }
+  },
 };
 
 export default SheetsAdapter;
