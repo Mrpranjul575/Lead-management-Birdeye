@@ -1,6 +1,6 @@
-import { Zap, ArrowRight, Mail, MessageSquare, Mic, Link2, Clock, TrendingUp } from 'lucide-react';
+import { Zap, ArrowRight, Mail, MessageSquare, Mic, Link2, Clock, TrendingUp, GitBranch } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { getPendingSteps } from '../utils/cadenceUtils';
+import { getPendingSteps, getCadenceProgress } from '../utils/cadenceUtils';
 
 const SUGGESTIONS = {
   'Hot': [
@@ -89,13 +89,21 @@ export default function NextBestStep({ lead, compact=false }) {
   const top = suggestions[0];
   const Icon = top.icon;
   const urg  = URGENCY_STYLE[top.urgency];
+  const cadProgress = getCadenceProgress(lead);
 
   if (compact) {
-    // Inline chip for Work Queue rows — just shows the top suggestion as a badge
+    // Inline chip for Work Queue rows — shows top action + cadence day context when active
     return (
-      <div style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'3px 8px', borderRadius:99, background:urg.bg, border:`1px solid ${urg.color}30` }}>
-        <Icon size={10} color={urg.color}/>
-        <span style={{ fontSize:10, fontWeight:600, color:urg.color }}>{top.action}</span>
+      <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+        <div style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'3px 8px', borderRadius:99, background:urg.bg, border:`1px solid ${urg.color}30` }}>
+          <Icon size={10} color={urg.color}/>
+          <span style={{ fontSize:10, fontWeight:600, color:urg.color }}>{top.action}</span>
+        </div>
+        {cadProgress.isStarted && cadProgress.name && (
+          <span style={{ fontSize:9, color:'var(--t2)', paddingLeft:2 }}>
+            {cadProgress.name} · Day {cadProgress.day}/{cadProgress.total}
+          </span>
+        )}
       </div>
     );
   }
@@ -109,9 +117,16 @@ export default function NextBestStep({ lead, compact=false }) {
           <Zap size={13} color="#7C5CE8" style={{ animation:'glow-pulse 2.5s ease-in-out infinite' }}/>
           <span style={{ fontSize:12, fontWeight:600, color:'#7C5CE8' }}>Next Best Steps</span>
         </div>
-        <span style={{ fontSize:10, color:T2 }}>
-          {hasCadence && !isDemo ? `Day ${lead.cadenceDay} cadence step` : `Based on stage: ${lead.stage}`}
-        </span>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:1 }}>
+          <span style={{ fontSize:10, color:T2 }}>
+            {hasCadence && !isDemo ? `Day ${lead.cadenceDay}/${cadProgress.total} cadence step` : `Based on stage: ${lead.stage}`}
+          </span>
+          {hasCadence && !isDemo && cadProgress.totalSteps > 0 && (
+            <span style={{ fontSize:10, color:'#7C5CE8', fontWeight:600 }}>
+              {cadProgress.pct}% complete · {cadProgress.completedSteps}/{cadProgress.totalSteps} steps
+            </span>
+          )}
+        </div>
       </div>
 
       <div style={{ padding:'12px 14px', display:'flex', flexDirection:'column', gap:8 }}>

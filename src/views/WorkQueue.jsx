@@ -9,7 +9,7 @@ import ScoreRing from '../components/ui/ScoreRing';
 import NextBestStep from '../components/NextBestStep';
 import { useApp } from '../context/AppContext';
 import { deriveSignals, deriveActivityIntelligence } from '../utils/intelligenceEngine';
-import { getPendingSteps } from '../utils/cadenceUtils';
+import { getPendingSteps, getCadenceProgress } from '../utils/cadenceUtils';
 
 /* Numeric urgency order for sort comparator — precomputed once, never called in the sort loop */
 const URGENCY_ORDER = { Critical:0, High:1, Medium:2, Low:3 };
@@ -108,6 +108,7 @@ export default function WorkQueue() {
       const derived       = deriveSignals(lead);
       const activityIntel = deriveActivityIntelligence(lead);
       const hasPending    = getPendingSteps(lead).length > 0;
+      const cadProgress   = getCadenceProgress(lead);
       const recentAct     = new Date(lead.activities?.[0]?.timestamp || 0).getTime();
 
       // Build human-readable sort reason for tooltip explainability
@@ -126,7 +127,8 @@ export default function WorkQueue() {
         hasPending,
         recentActivity: recentAct,
         sortReason:     parts.join(' + ') || 'Base Order',
-        activityIntel,  // grouped per architecture preference
+        activityIntel,
+        cadProgress,
       };
     });
 
@@ -276,7 +278,7 @@ export default function WorkQueue() {
 
         {/* ── Rows ── */}
         <div>
-          {ranked.map(({ lead, sortReason, activityIntel }) => {
+          {ranked.map(({ lead, sortReason, activityIntel, cadProgress }) => {
             const stageStyle  = STAGE_STYLE[lead.stage]  || STAGE_STYLE['New'];
             const intentStyle = INTENT_STYLE[lead.intent] || INTENT_STYLE['AI Visibility'];
             const isSel       = selected.has(lead.id);
@@ -373,7 +375,7 @@ export default function WorkQueue() {
                   )}
                 </div>
 
-                {/* Status pill */}
+                {/* Status pill + cadence badge */}
                 <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
                   <span style={{
                     ...stageStyle, padding:'2px 8px', borderRadius:99,
@@ -381,6 +383,21 @@ export default function WorkQueue() {
                   }}>
                     {lead.stage === 'Hot' ? '🔥 ' : ''}{lead.stage}
                   </span>
+                  {cadProgress.name && (
+                    <div style={{ display:'flex', flexDirection:'column', gap:1 }}>
+                      <span style={{ fontSize:9, fontWeight:600, color:'#7C5CE8', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:86 }}
+                        title={cadProgress.name}>
+                        {cadProgress.isComplete ? '✓ ' : ''}{cadProgress.name}
+                      </span>
+                      <span style={{ fontSize:9, color:'var(--t2)' }}>
+                        {cadProgress.isComplete
+                          ? `Done · ${cadProgress.pct}%`
+                          : cadProgress.isStarted
+                            ? `Day ${cadProgress.day}/${cadProgress.total} · ${cadProgress.pct}%`
+                            : 'Not started'}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* ••• menu */}

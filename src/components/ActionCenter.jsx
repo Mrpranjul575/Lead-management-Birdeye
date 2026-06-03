@@ -12,9 +12,9 @@
  * Recommendation logic lives in NextBestStep — not duplicated here.
  */
 
-import { PhoneCall, Calendar, Mic, Plus, Zap } from 'lucide-react';
+import { PhoneCall, Calendar, Mic, Plus, Zap, GitBranch } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { getPendingSteps } from '../utils/cadenceUtils';
+import { getPendingSteps, getCadenceProgress } from '../utils/cadenceUtils';
 import { deriveNextBestSuggestions } from './NextBestStep';
 
 const CHANNEL_TO_MODE = { Email:'email', SMS:'sms', VM:'voicemail', LinkedIn:'linkedin' };
@@ -55,6 +55,7 @@ export default function ActionCenter({ lead, onCallNotes, onFollowUp, onRecordin
 
   // Priority 1: pending cadence steps
   const pendingSteps = (lead.cadenceDay > 0) ? getPendingSteps(lead) : [];
+  const cadProgress  = getCadenceProgress(lead);
 
   // Priority 2: top NextBestStep suggestion (only when no cadence pending)
   const suggestions   = deriveNextBestSuggestions(lead);
@@ -89,6 +90,35 @@ export default function ActionCenter({ lead, onCallNotes, onFollowUp, onRecordin
             variant="highlighted"
             onClick={() => openCopilot(topSuggestion.channel, lead)}
           />
+        )}
+
+        {/* Cadence status — shown when a cadence is assigned */}
+        {cadProgress.name && (
+          <div style={{ padding:'7px 10px', borderRadius:7, background:'rgba(91,63,200,0.06)', border:'1px solid rgba(91,63,200,0.15)', display:'flex', flexDirection:'column', gap:4 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                <GitBranch size={11} color="#7C5CE8"/>
+                <span style={{ fontSize:11, fontWeight:600, color:'#7C5CE8', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:120 }}>{cadProgress.name}</span>
+              </div>
+              <span style={{ fontSize:10, color:'var(--t2)', flexShrink:0 }}>
+                {cadProgress.isComplete ? '✓ Done' : cadProgress.isStarted ? `Day ${cadProgress.day}/${cadProgress.total}` : 'Not started'}
+              </span>
+            </div>
+            {cadProgress.totalSteps > 0 && (
+              <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                <div style={{ display:'flex', justifyContent:'space-between' }}>
+                  <span style={{ fontSize:9, color:'var(--t2)' }}>{cadProgress.completedSteps}/{cadProgress.totalSteps} steps</span>
+                  <span style={{ fontSize:9, fontWeight:700, color: cadProgress.isComplete ? '#10B981' : '#7C5CE8' }}>{cadProgress.pct}%</span>
+                </div>
+                <div style={{ height:3, borderRadius:99, background:'var(--b1)', overflow:'hidden' }}>
+                  <div style={{ height:3, borderRadius:99, background: cadProgress.isComplete ? '#10B981' : '#5B3FC8', width:`${cadProgress.pct}%`, transition:'width 0.4s ease' }}/>
+                </div>
+              </div>
+            )}
+            {cadProgress.nextStep && !cadProgress.isComplete && (
+              <span style={{ fontSize:9, color:'var(--t2)' }}>Next: {cadProgress.nextStep}</span>
+            )}
+          </div>
         )}
 
         {/* Divider */}

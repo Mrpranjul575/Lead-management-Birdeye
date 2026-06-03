@@ -103,3 +103,56 @@ export function currentStepLabel(lead) {
   const next = nextCadenceDay(day, plan);
   return `Advance to Day ${next}`;
 }
+
+/**
+ * getCadenceProgress — single source of truth for cadence visibility metrics.
+ *
+ * Returns a snapshot object for display across WorkQueue, LeadPage header,
+ * NextBestStep, and ActionCenter. Pure function — no side effects.
+ *
+ * completedSteps: count of steps where seqLog[step.key] is truthy
+ * totalSteps:     count of all steps in the active plan
+ * pct:            Math.round(completedSteps / totalSteps * 100), or 0 if no steps
+ * nextStep:       label of first pending step on current day, or null
+ * isStarted:      cadenceDay > 0
+ * isComplete:     isCadenceComplete(lead)
+ *
+ * @param {object} lead
+ * @returns {{
+ *   name: string,
+ *   day: number,
+ *   total: number,
+ *   completedSteps: number,
+ *   totalSteps: number,
+ *   pct: number,
+ *   nextStep: string|null,
+ *   isStarted: boolean,
+ *   isComplete: boolean,
+ * }}
+ */
+export function getCadenceProgress(lead) {
+  const plan        = getActivePlan(lead);
+  const day         = lead.cadenceDay  || 0;
+  const total       = lead.cadenceTotal || plan.length || 0;
+  const totalSteps  = plan.length;
+  const completedSteps = plan.filter(s => {
+    const v = lead.seqLog?.[s.key];
+    if (!v) return false;
+    if (typeof v === 'object') return !!v.completed;
+    return true;
+  }).length;
+  const pct        = totalSteps > 0 ? Math.round(completedSteps / totalSteps * 100) : 0;
+  const pending    = getPendingSteps(lead);
+  const nextStep   = pending.length > 0 ? pending[0].label : null;
+  return {
+    name:           lead.cadenceName || null,
+    day,
+    total,
+    completedSteps,
+    totalSteps,
+    pct,
+    nextStep,
+    isStarted:      day > 0,
+    isComplete:     isCadenceComplete(lead),
+  };
+}

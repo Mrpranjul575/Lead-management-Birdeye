@@ -6,13 +6,13 @@ import {
   Calendar, Plus, X, Upload, Mic, MessageSquare, Link2,
   Flame, TrendingUp, Target, Eye, Lightbulb, Edit3,
   PhoneCall, Video, AlignLeft, Paperclip, ChevronDown,
-  AlertCircle, ThumbsUp, Sparkles
+  AlertCircle, ThumbsUp, Sparkles, GitBranch
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { STAGES_ALL, STAGE_STYLE } from '../constants/stages';
 import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity, isConfirmed } from '../data/schema';
 import { SEQ_PLAN } from '../constants/cadencePlan';
-import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay } from '../utils/cadenceUtils';
+import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay, getCadenceProgress } from '../utils/cadenceUtils';
 import { deriveSignals, deriveActivityIntelligence } from '../utils/intelligenceEngine';
 import ActionCenter from '../components/ActionCenter';
 import NextBestStep from '../components/NextBestStep';
@@ -1630,6 +1630,7 @@ export default function LeadPage() {
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const stageStyle = STAGE_STYLE[lead.stage] || STAGE_STYLE['New'];
   const intel = lead.intelligence || {};
+  const cadProgress = getCadenceProgress(lead);
 
   return (
     <div className="fade-up" style={{ display:'flex', flexDirection:'column', gap:0 }}>
@@ -1709,6 +1710,20 @@ export default function LeadPage() {
                 <div style={{ fontSize:9, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:4 }}>Next Best Action</div>
                 <div style={{ fontSize:12, fontWeight:600, color:'#7C5CE8', maxWidth:120, textAlign:'right' }}>{intel.nextBestAction||lead.nextAction||'—'}</div>
               </div>
+              {cadProgress.name && (
+                <div style={{ display:'flex', flexDirection:'column', gap:3, alignItems:'flex-end' }}>
+                  <div style={{ fontSize:9, color:T2, textTransform:'uppercase', letterSpacing:'0.05em' }}>Cadence</div>
+                  <div style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 9px', borderRadius:8, background:'rgba(91,63,200,0.08)', border:'1px solid rgba(91,63,200,0.2)' }}>
+                    <GitBranch size={10} color="#7C5CE8"/>
+                    <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', gap:1 }}>
+                      <span style={{ fontSize:10, fontWeight:600, color:'#7C5CE8', maxWidth:100, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{cadProgress.name}</span>
+                      <span style={{ fontSize:9, color:'var(--t2)' }}>
+                        {cadProgress.isComplete ? `✓ Done · ${cadProgress.pct}%` : cadProgress.isStarted ? `Day ${cadProgress.day}/${cadProgress.total} · ${cadProgress.pct}%` : 'Assigned · Not started'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Stage pills */}
