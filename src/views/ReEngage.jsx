@@ -52,7 +52,7 @@ function deriveSignal(lead) {
 }
 
 export default function ReEngage() {
-  const { leads, updateLead, openCopilot } = useApp();
+  const { leads, updateLead, openCopilot, addActivity } = useApp();
   const { dark, T1, T2, B1, S1, S2 } = useTheme();
 
   const glass = dark
@@ -62,7 +62,6 @@ export default function ReEngage() {
   // ── Local UI state ────────────────────────────────────────────────────────
   const [editing,  setEditing]  = useState(null);   // lead.id being edited
   const [editText, setEditText] = useState('');
-  const [sent,     setSent]     = useState(new Set()); // lead ids with sent sequence
 
   // ── Live data ─────────────────────────────────────────────────────────────
   const reEngageLeads = useMemo(
@@ -88,12 +87,23 @@ export default function ReEngage() {
 
   // ── Actions ───────────────────────────────────────────────────────────────
   const handleSend = (lead) => {
-    // Update lastTouch + nextAction; stage stays unchanged per requirements
-    updateLead(lead.id, {
-      lastTouch:  'Just now',
-      nextAction: 'Re-engage sequence sent',
+    // Phase 9B: create a permanent CRM activity instead of local UI state.
+    // This activity appears in the Timeline, Activities tab, and buildTouchHistory()
+    // immediately — it survives refresh, navigation, and sync.
+    addActivity(lead.id, 'Email', 'Re-engagement sequence initiated', {
+      outcome: 'Sent',
+      source:  'reEngage',
+      content: editing === lead.id ? editText : null,
     });
-    setSent(s => new Set([...s, lead.id]));
+
+    // Keep lastTouch display field — visual hint in lead header
+    updateLead(lead.id, { lastTouch: 'Just now' });
+    // NOTE: nextAction intentionally NOT set here.
+    // deriveNextBestSuggestions() computes the correct next action from live signals.
+    // Setting a static string here would produce a stale value immediately.
+
+    // Close edit panel if open for this lead
+    if (editing === lead.id) setEditing(null);
   };
 
   const handleEdit = (lead) => {
@@ -174,7 +184,11 @@ export default function ReEngage() {
           </div>
 
           {reEngageLeads.map(lead => {
-            const isSent    = sent.has(lead.id);
+            // Phase 9B: isSent is derived from lead.activities — survives refresh,
+            // navigation, and sync. Previously used a local Set that reset on navigation.
+            const isSent    = (lead.activities || []).some(
+              a => a.source === 'reEngage' && a.type === 'Email'
+            );
             const isEditing = editing === lead.id;
             const sig       = deriveSignal(lead);
             const intel     = lead.intelligence || {};
