@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Plus, Mail, MessageSquare, Mic, Link2, Zap, Edit2, Trash2,
          ChevronDown, CheckCircle2, GitBranch, Copy, Search,
-         MoreHorizontal, AlertTriangle, X, Save } from 'lucide-react';
+         MoreHorizontal, AlertTriangle, X, Save, Users, ChevronRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 const CHANNEL_META = {
@@ -246,19 +246,83 @@ const TOOLBOX = [
 ];
 
 export default function Cadences() {
-  const { theme, cadences, saveCadence, leads, updateLead, addActivity } = useApp();
+  const { theme, cadences, saveCadence, deleteCadence, leads, updateLead, addActivity } = useApp();
   const dark = theme==='dark';
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const S1=dark?'#161B22':'#FFFFFF', S2=dark?'#0D1117':'#F8F9FA';
 
+  // ── Editor state ──
   const [steps,      setSteps]      = useState(INITIAL_STEPS);
   const [activeStep, setActiveStep] = useState(0);
   const [cadName,    setCadName]    = useState('AI Visibility Outreach');
   const [cadDesc,    setCadDesc]    = useState('Multi-channel outreach targeting leads to improve AI visibility.');
-  const [view,       setView]       = useState('editor'); // 'editor' | 'performance'
+  const [view,       setView]       = useState('editor');
   const [savedMsg,   setSavedMsg]   = useState(false);
-  const [applyingId,  setApplyingId]  = useState(null);
-  const [applyDone,   setApplyDone]   = useState(null);
+  const [applyingId, setApplyingId] = useState(null);
+  const [applyDone,  setApplyDone]  = useState(null);
+
+  // ── Library state ──
+  const [selectedCadenceId, setSelectedCadenceId] = useState(null);
+  const [expandedUsage,     setExpandedUsage]     = useState(null);
+  const [deleteBlockId,     setDeleteBlockId]     = useState(null);
+
+  // ── Usage count — derived from leads[], never stored ──
+  const cadenceUsage = useMemo(() => {
+    const map = {};
+    cadences.forEach(c => { map[c.id] = []; });
+    leads.forEach(l => { if (l.cadenceId && map[l.cadenceId]) map[l.cadenceId].push(l); });
+    return map;
+  }, [cadences, leads]);
+
+  // ── Load cadence from library into editor ──
+  const handleSelectCadence = (cad) => {
+    setSelectedCadenceId(cad.id);
+    setCadName(cad.name || '');
+    setCadDesc(cad.description || '');
+    setSteps(cad.steps && cad.steps.length > 0 ? cad.steps : []);
+    setActiveStep(0);
+    setExpandedUsage(null);
+    setDeleteBlockId(null);
+  };
+
+  // ── New cadence ──
+  const handleNewCadence = () => {
+    setSelectedCadenceId(null);
+    setCadName('New Cadence');
+    setCadDesc('');
+    setSteps([]);
+    setActiveStep(0);
+    setExpandedUsage(null);
+    setDeleteBlockId(null);
+  };
+
+  // ── Clone cadence ──
+  const handleClone = (cad, e) => {
+    e.stopPropagation();
+    saveCadence({
+      id:          null,
+      name:        cad.name + ' (Copy)',
+      description: cad.description || '',
+      steps:       (cad.steps || []).map(s => ({
+        ...s,
+        id:  Date.now() + Math.random(),
+        key: `custom_${(s.channel||'email').toLowerCase()}_${Date.now() + Math.random()}`,
+      })),
+    });
+  };
+
+  // ── Safe delete — blocked when usage > 0 ──
+  const handleDeleteAttempt = (cad, e) => {
+    e.stopPropagation();
+    const usageCount = (cadenceUsage[cad.id] || []).length;
+    if (usageCount > 0) {
+      setDeleteBlockId(deleteBlockId === cad.id ? null : cad.id);
+      return;
+    }
+    deleteCadence(cad.id);
+    if (selectedCadenceId === cad.id) handleNewCadence();
+    setDeleteBlockId(null);
+  };
 
   const handleApplyToLead = (cad, leadId) => {
     const target = leads.find(l => l.id === leadId);
@@ -268,7 +332,6 @@ export default function Cadences() {
       cadenceName:  cad.name,
       cadenceDay:   0,
       cadenceTotal: cad.steps?.length || 7,
-      // Store the actual steps so CadenceTab executes this cadence, not SEQ_PLAN
       cadenceSteps: cad.steps || [],
     });
     addActivity(leadId, 'Cadence Update', 'Cadence applied: ' + cad.name, { source: 'manual' });
@@ -277,8 +340,9 @@ export default function Cadences() {
     setTimeout(() => setApplyDone(null), 2500);
   };
 
+  // ── Save — upserts when selectedCadenceId is set, creates new when null ──
   const handleSaveCadence = () => {
-    saveCadence({ id: null, name: cadName, description: cadDesc, steps });
+    saveCadence({ id: selectedCadenceId || null, name: cadName, description: cadDesc, steps, updatedAt: new Date().toISOString() });
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2000);
   };
@@ -286,25 +350,9 @@ export default function Cadences() {
   const updateStep = (id, patch) => setSteps(ss=>ss.map(s=>s.id===id?{...s,...patch}:s));
   const deleteStep = (id) => { setSteps(ss=>ss.filter(s=>s.id!==id)); if(steps[activeStep]?.id===id) setActiveStep(0); };
   const addStep    = (channel='Email') => {
-    // Phase 9A-1: generate a stable string key for custom steps.
-    // Previously steps had no `key` field — only numeric `id`.
-    // markStepComplete(leadId, stepKey) uses step.key to look up the step
-    // in the active plan and to write seqLog[stepKey]. Without a key,
-    // seqLog[undefined] was written and the step could never be found.
     const stepId  = Date.now();
     const stepKey = `custom_${channel.toLowerCase()}_${stepId}`;
-    const newStep = {
-      id:      stepId,
-      key:     stepKey,
-      name:    `${channel} Step`,
-      channel,
-      day:     steps.length + 1,
-      type:    'Automated',
-      subject: '',
-      body:    '',
-      ifThen:  null,
-      stats:   null,
-    };
+    const newStep = { id:stepId, key:stepKey, name:`${channel} Step`, channel, day:steps.length+1, type:'Automated', subject:'', body:'', ifThen:null, stats:null };
     setSteps(ss => [...ss, newStep]);
     setActiveStep(steps.length);
   };
@@ -327,7 +375,9 @@ export default function Cadences() {
             onMouseLeave={e=>{e.currentTarget.style.background='rgba(91,63,200,0.08)';}}>
             <Zap size={12}/> Build with AI
           </button>
-          <button style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)', transition:'background 0.15s' }}
+          <button
+            onClick={handleNewCadence}
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'7px 14px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)', transition:'background 0.15s' }}
             onMouseEnter={e=>e.currentTarget.style.background='#4828B5'}
             onMouseLeave={e=>e.currentTarget.style.background='#5B3FC8'}>
             <Plus size={13}/> New Cadence
@@ -335,14 +385,81 @@ export default function Cadences() {
         </div>
       </div>
 
-      {/* 3-column canvas */}
-      <div style={{ display:'grid', gridTemplateColumns:'260px 1fr 300px', gap:14, flex:1, overflow:'hidden', minHeight:0 }}>
+      {/* 4-column layout */}
+      <div style={{ display:'grid', gridTemplateColumns:'200px 240px 1fr 280px', gap:12, flex:1, overflow:'hidden', minHeight:0 }}>
+
+        {/* ── COL 1: Cadence Library ── */}
+        <div style={{ background:S1, border:`1px solid ${B1}`, borderRadius:14, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+          <div style={{ padding:'12px 14px', borderBottom:`1px solid ${B1}`, flexShrink:0 }}>
+            <div style={{ fontSize:12, fontWeight:700, color:T1 }}>Library</div>
+            <div style={{ fontSize:10, color:T2, marginTop:1 }}>{cadences.length} cadence{cadences.length!==1?'s':''}</div>
+          </div>
+          <div style={{ flex:1, overflowY:'auto', padding:'8px' }}>
+            {cadences.length===0 && (
+              <div style={{ textAlign:'center', padding:'32px 12px', color:T2, fontSize:11 }}>
+                No saved cadences.<br/>Click <strong style={{ color:'#7C5CE8' }}>+ New Cadence</strong>.
+              </div>
+            )}
+            {cadences.map(cad => {
+              const usage      = cadenceUsage[cad.id] || [];
+              const usageCount = usage.length;
+              const isSelected = selectedCadenceId === cad.id;
+              const isBlocked  = deleteBlockId === cad.id;
+              const showLeads  = expandedUsage === cad.id;
+              return (
+                <div key={cad.id} style={{ marginBottom:4 }}>
+                  <div
+                    onClick={()=>handleSelectCadence(cad)}
+                    style={{ padding:'10px', borderRadius:9, background:isSelected?'rgba(91,63,200,0.12)':'transparent', border:`1px solid ${isSelected?'rgba(91,63,200,0.35)':'transparent'}`, cursor:'pointer', transition:'all 0.12s' }}
+                    onMouseEnter={e=>{if(!isSelected){e.currentTarget.style.background=dark?'rgba(255,255,255,0.04)':'rgba(0,0,0,0.03)'; e.currentTarget.style.borderColor=B1;}}}
+                    onMouseLeave={e=>{if(!isSelected){e.currentTarget.style.background='transparent'; e.currentTarget.style.borderColor='transparent';}}}>
+                    <div style={{ fontSize:12, fontWeight:600, color:isSelected?'#7C5CE8':T1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginBottom:2 }}>{cad.name||'Untitled'}</div>
+                    <div style={{ fontSize:10, color:T2, marginBottom:6 }}>{(cad.steps||[]).length} step{(cad.steps||[]).length!==1?'s':''}{cad.updatedAt ? ` · ${(() => { const d=Math.floor((Date.now()-new Date(cad.updatedAt).getTime())/(86400000)); return d===0?'today':d===1?'1d ago':`${d}d ago`; })()}` : ''}</div>
+                    <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                      <button
+                        onClick={e=>{e.stopPropagation(); setExpandedUsage(showLeads?null:cad.id); setDeleteBlockId(null);}}
+                        style={{ display:'flex', alignItems:'center', gap:4, padding:'2px 7px', borderRadius:99, border:'none', cursor:usageCount>0?'pointer':'default', background:usageCount>0?'rgba(91,63,200,0.1)':'rgba(139,148,158,0.1)', color:usageCount>0?'#7C5CE8':T2, fontSize:10, fontWeight:600, fontFamily:'inherit', transition:'all 0.12s' }}
+                        onMouseEnter={e=>{if(usageCount>0)e.currentTarget.style.background='rgba(91,63,200,0.2)';}}
+                        onMouseLeave={e=>{e.currentTarget.style.background=usageCount>0?'rgba(91,63,200,0.1)':'rgba(139,148,158,0.1)';}}>
+                        <Users size={9}/>
+                        {usageCount>0?`Used by ${usageCount}`:'Unused'}
+                        {usageCount>0&&<ChevronRight size={9} style={{ transform:showLeads?'rotate(90deg)':'none', transition:'transform 0.15s' }}/>}
+                      </button>
+                      <div style={{ display:'flex', gap:3 }} onClick={e=>e.stopPropagation()}>
+                        <button title="Clone" onClick={e=>handleClone(cad,e)} style={{ padding:4, border:'none', background:'transparent', cursor:'pointer', color:T2, borderRadius:5, transition:'all 0.12s', opacity:0.6 }} onMouseEnter={e=>{e.currentTarget.style.color='#7C5CE8'; e.currentTarget.style.opacity='1';}} onMouseLeave={e=>{e.currentTarget.style.color=T2; e.currentTarget.style.opacity='0.6';}}><Copy size={11}/></button>
+                        <button title={usageCount>0?`Assigned to ${usageCount} lead${usageCount>1?'s':''}`:' Delete'} onClick={e=>handleDeleteAttempt(cad,e)} style={{ padding:4, border:'none', background:'transparent', cursor:usageCount>0?'not-allowed':'pointer', color:usageCount>0?'rgba(239,68,68,0.3)':T2, borderRadius:5, transition:'all 0.12s', opacity:usageCount>0?0.5:0.6 }} onMouseEnter={e=>{if(usageCount===0){e.currentTarget.style.color='#EF4444'; e.currentTarget.style.opacity='1';}}} onMouseLeave={e=>{e.currentTarget.style.color=usageCount>0?'rgba(239,68,68,0.3)':T2; e.currentTarget.style.opacity=usageCount>0?0.5:0.6;}}><Trash2 size={11}/></button>
+                      </div>
+                    </div>
+                  </div>
+                  {isBlocked && (
+                    <div style={{ margin:'4px 4px 8px', padding:'8px 10px', borderRadius:8, background:'rgba(239,68,68,0.08)', border:'1px solid rgba(239,68,68,0.25)' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:5, marginBottom:3 }}><AlertTriangle size={11} color="#F87171"/><span style={{ fontSize:11, fontWeight:600, color:'#F87171' }}>Cannot delete</span></div>
+                      <div style={{ fontSize:10, color:T2, lineHeight:1.5, marginBottom:4 }}>This cadence is assigned to {usageCount} lead{usageCount>1?'s':''}. Unassign all leads before deleting.</div>
+                      <button onClick={()=>setDeleteBlockId(null)} style={{ fontSize:10, color:T2, background:'none', border:'none', cursor:'pointer', fontFamily:'inherit', padding:0, textDecoration:'underline' }}>Dismiss</button>
+                    </div>
+                  )}
+                  {showLeads && usageCount>0 && (
+                    <div style={{ margin:'0 4px 8px', padding:'6px 8px', borderRadius:8, background:dark?'rgba(0,0,0,0.2)':'rgba(0,0,0,0.03)', border:`1px solid ${B1}` }}>
+                      <div style={{ fontSize:9, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:5 }}>Assigned Leads</div>
+                      {usage.map(l=>(
+                        <div key={l.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'3px 0' }}>
+                          <span style={{ fontSize:11, color:T1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', flex:1 }}>{l.business}</span>
+                          <span style={{ fontSize:10, color:T2, marginLeft:6, flexShrink:0 }}>{l.cadenceDay>0?`Day ${l.cadenceDay}`:'Not started'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
 
         {/* LEFT: Details + Toolbox */}
         <div style={{ display:'flex', flexDirection:'column', gap:14, overflow:'hidden' }}>
           {/* Details */}
           <div style={{ background:S1, border:`1px solid ${B1}`, borderRadius:14, padding:'16px', flexShrink:0 }}>
-            <div style={{ fontSize:13, fontWeight:600, color:T1, marginBottom:14 }}>Cadence Details</div>
+            <div style={{ fontSize:13, fontWeight:600, color:T1, marginBottom:14 }}>{selectedCadenceId ? 'Edit Cadence' : 'New Cadence'}</div>
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
               <div>
                 <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:4 }}>Name</div>
@@ -365,7 +482,7 @@ export default function Cadences() {
               <button onClick={handleSaveCadence} style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'8px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)', transition:'background 0.15s' }}
                 onMouseEnter={e=>e.currentTarget.style.background='#4828B5'}
                 onMouseLeave={e=>e.currentTarget.style.background='#5B3FC8'}>
-                <Save size={11}/> {savedMsg ? '✓ Saved!' : 'Save Cadence'}
+                <Save size={11}/> {savedMsg ? '✓ Saved!' : (selectedCadenceId ? 'Update Cadence' : 'Save Cadence')}
               </button>
 
               {/* Apply to Lead */}
@@ -375,7 +492,12 @@ export default function Cadences() {
                   <select
                     onChange={e => {
                       const id = parseInt(e.target.value);
-                      if (id) handleApplyToLead({ id: Date.now(), name: cadName, description: cadDesc, steps }, id);
+                      if (id) {
+                        const cad = selectedCadenceId
+                          ? (cadences.find(c => c.id === selectedCadenceId) || { id: Date.now(), name: cadName, description: cadDesc, steps })
+                          : { id: Date.now(), name: cadName, description: cadDesc, steps };
+                        handleApplyToLead(cad, id);
+                      }
                     }}
                     defaultValue=""
                     style={{ padding:'5px 10px', borderRadius:7, border:`1px solid ${B1}`, background:S2, color:T1, fontSize:11, fontFamily:'inherit', outline:'none', cursor:'pointer', width:'100%' }}>
@@ -441,6 +563,12 @@ export default function Cadences() {
 
           {/* Steps */}
           <div style={{ flex:1, overflowY:'auto', padding:'24px 24px 24px 36px', position:'relative', zIndex:1 }}>
+            {steps.length===0 && (
+              <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:'80%', gap:10, opacity:0.45 }}>
+                <GitBranch size={30} color={T2}/>
+                <span style={{ fontSize:12, color:T2 }}>No steps yet — add from toolbox</span>
+              </div>
+            )}
             {steps.map((step, idx)=>(
               <StepNode key={step.id} step={step} idx={idx}
                 isActive={activeStep===idx}
