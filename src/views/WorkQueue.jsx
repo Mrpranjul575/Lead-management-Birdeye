@@ -14,25 +14,7 @@ import { getPendingSteps } from '../utils/cadenceUtils';
 /* Numeric urgency order for sort comparator — precomputed once, never called in the sort loop */
 const URGENCY_ORDER = { Critical:0, High:1, Medium:2, Low:3 };
 
-/* ─── Stage colors ─── */
-const STAGE = {
-  'Hot':         { bg:'rgba(239,68,68,0.15)',  color:'#F87171' },
-  'Contacted':   { bg:'rgba(245,158,11,0.15)', color:'#FCD34D' },
-  'Demo Booked': { bg:'rgba(91,63,200,0.18)',  color:'#7C5CE8' },
-  'Converted':   { bg:'rgba(16,185,129,0.15)', color:'#34D399' },
-  'Lost':        { bg:'rgba(239,68,68,0.15)',  color:'#F87171' },
-  'Follow Up':   { bg:'rgba(56,189,248,0.15)', color:'#38BDF8' },
-  'Nurturing':   { bg:'rgba(236,72,153,0.15)', color:'#F472B6' },
-  'New':         { bg:'rgba(59,130,246,0.15)', color:'#60A5FA' },
-  'Re-engage':   { bg:'rgba(251,146,60,0.15)', color:'#FB923C' },
-};
-
-/* ─── Intent colors ─── */
-const INTENT = {
-  'AI Visibility': { bg:'rgba(91,63,200,0.15)',  color:'#7C5CE8' },
-  'Review Growth': { bg:'rgba(59,130,246,0.15)', color:'#60A5FA' },
-  'Listings':      { bg:'rgba(16,185,129,0.15)', color:'#34D399' },
-};
+/* ─── Stage / Intent colors — sourced from canonical constants, never re-declared ─── */
 
 
 /* ─── Stat card ─── */
@@ -295,8 +277,8 @@ export default function WorkQueue() {
         {/* ── Rows ── */}
         <div>
           {ranked.map(({ lead, sortReason, activityIntel }) => {
-            const stageStyle  = STAGE[lead.stage]  || STAGE['New'];
-            const intentStyle = INTENT[lead.intent] || INTENT['AI Visibility'];
+            const stageStyle  = STAGE_STYLE[lead.stage]  || STAGE_STYLE['New'];
+            const intentStyle = INTENT_STYLE[lead.intent] || INTENT_STYLE['AI Visibility'];
             const isSel       = selected.has(lead.id);
 
             return (

@@ -1,5 +1,6 @@
 import { SheetsAdapter } from '../services/sheetsAdapter';
 import { enrichLead } from '../services/enrichLead';
+import { reconcileSheetLeads } from '../utils/reconcileUtils';
 import { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import { MOCK_LEADS, MOCK_CADENCES } from '../data/mockData';
 import { SEQ_PLAN } from '../constants/cadencePlan';
@@ -61,6 +62,8 @@ export function AppProvider({ children }) {
   const [search,       setSearch]       = useState('');
   const [settings,     setSettings]     = useState(loadSettings);
   const [clipSearch,   setClipSearch]   = useState(false);
+  const [syncing,      setSyncing]      = useState(false);
+  const [lastSynced,   setLastSynced]   = useState(null);
 
   // P1-A: activeLead is derived — leads array is the single source of truth.
   // Any mutation to leads[] is immediately reflected here without dual-writes.
@@ -369,6 +372,113 @@ export function AppProvider({ children }) {
     return { enriched, failed };
   }, [enrichSingleLead]);
 
+  // ── Sheets Sync ───────────────────────────────────────────────────────────
+  //
+  // syncFromSheets()
+  //   Fetches all leads from the connected Google Sheets Web App and reconciles
+  //   them against the local leads array using the same rules as BulkCSV:
+  //     - Matched leads (by email or business): profile fields only, never intel/AK/activities.
+  //     - Unmatched leads: addLead() with tags: ['Sheets'].
+  //
+  //   Guard: if already syncing, returns immediately — no parallel sync.
+  //   Guarantees: setSyncing(false) always fires via finally block.
+  //   On failure: console.error only — silent for users.
+  //   On success: setLastSynced(ISO string).
+  //
+  // Auto-sync on load:
+  //   Runs once on mount when settings.syncLeads === true.
+  //   Async fire-and-forget — never blocks app load or render.
+
+  const syncFromSheets = useCallback(async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const result = await SheetsAdapter.readLeads(settings);
+      if (!result.ok) {
+        console.error('[Sheets Sync] readLeads failed:', result.error);
+        return;
+      }
+      const data = result.data || [];
+      // Use setLeads functional update to read latest leads snapshot — avoids stale closure.
+      setLeads(currentLeads => {
+        const added   = [];
+        const updates = [];
+
+        data.forEach(sheetLead => {
+          if (!sheetLead) return;
+          const existing = currentLeads.find(l =>
+            (l.email && sheetLead.email &&
+              l.email.toLowerCase() === sheetLead.email.toLowerCase()) ||
+            (l.business && sheetLead.business &&
+              l.business.toLowerCase() === sheetLead.business.toLowerCase())
+          );
+          if (existing) {
+            updates.push({ id: existing.id, sheetLead });
+          } else {
+            added.push(sheetLead);
+          }
+        });
+
+        // Apply profile-only updates to matched leads
+        let next = currentLeads.map(l => {
+          const match = updates.find(u => u.id === l.id);
+          if (!match) return l;
+          const { sheetLead } = match;
+          const now = new Date().toISOString();
+          return applyScore({
+            ...l,
+            business:  sheetLead.business  || l.business,
+            email:     sheetLead.email     || l.email,
+            phone:     sheetLead.phone     || l.phone,
+            city:      sheetLead.city      || l.city,
+            stage:     sheetLead.stage     || l.stage,
+            reviews:   sheetLead.reviews   || l.reviews,
+            updatedAt: now,
+            // NEVER touch: intelligence, accountKnowledge, activities, memory,
+            //              followUps, touchLog, seqLog, cadenceDay, files, aiScore
+          });
+        });
+
+        // Prepend new leads
+        const now = new Date().toISOString();
+        const newLeads = added.map(sheetLead =>
+          applyScore(migrateLead({
+            ...sheetLead,
+            id:         Date.now() + Math.random(),
+            tags:       ['Sheets'],
+            createdAt:  now,
+            touchLog:   [],
+            activity:   [],
+            activities: [],
+            memory:     [],
+            followUps:  [],
+            files:      [],
+            seqLog:     {},
+          }))
+        );
+
+        return [...newLeads, ...next];
+      });
+
+      setLastSynced(new Date().toISOString());
+    } catch (e) {
+      console.error('[Sheets Sync] Unexpected error:', e);
+    } finally {
+      setSyncing(false);
+    }
+  }, [syncing, settings]);
+
+  // Auto-sync on mount — only when settings.syncLeads is true.
+  // Async fire-and-forget: never blocks app load or first render.
+  useEffect(() => {
+    if (settings.syncLeads) {
+      // Defer to next tick so the app renders first
+      const t = setTimeout(() => { syncFromSheets(); }, 0);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty deps — mount-only, syncLeads read at call time
+
   return (
     <AppCtx.Provider value={{
       theme, toggleTheme,
@@ -388,6 +498,7 @@ export function AppProvider({ children }) {
       settings, updateSettings,
       enrichSingleLead, batchEnrichLeads,
       clipSearch, setClipSearch,
+      syncing, lastSynced, syncFromSheets,
     }}>
       {children}
     </AppCtx.Provider>

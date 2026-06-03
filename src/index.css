@@ -81,6 +81,11 @@ body {
 }
 .fade-up { animation: fade-up 0.18s ease-out both; }
 
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
 /* ── Reusable UI atoms ── */
 .card {
   background: var(--s1);

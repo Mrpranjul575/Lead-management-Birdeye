@@ -129,17 +129,14 @@ export const SheetsAdapter = {
   },
 
   /**
-   * Read all leads from the connected Google Sheet.
+   * Read all leads from the connected Google Sheet via the deployed Web App URL.
+   * No sheetsId or token required — the Web App URL is the sole endpoint.
    * Returns { ok: true, data: lead[] } on success.
    * Returns { ok: false, error: string, data: [] } on failure.
    */
   async readLeads(settings) {
-    const { sheetsId, sheetsToken } = settings || {};
-    if (!sheetsId || !sheetsToken) {
-      return { ok: false, error: 'No Sheets ID or token configured', data: [] };
-    }
     try {
-      const res  = await fetch(`${SHEETS_URL}?action=readLeads&sheetsId=${encodeURIComponent(sheetsId)}`);
+      const res  = await fetch(`${SHEETS_URL}?action=readLeads`);
       const json = await res.json();
       if (json.error) return { ok: false, error: json.error, data: [] };
       const rows = Array.isArray(json.data) ? json.data : (Array.isArray(json) ? json : []);

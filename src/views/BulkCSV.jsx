@@ -8,6 +8,7 @@ import { useApp } from '../context/AppContext';
 import { useTheme } from '../hooks/useTheme';
 import { STAGES_ALL } from '../constants/stages';
 import { SheetsAdapter } from '../services/sheetsAdapter';
+import { reconcileSheetLeads } from '../utils/reconcileUtils';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -109,42 +110,6 @@ function buildLeadFromMapping(row, mapping) {
     followUps:    [],
     files:        [],
   };
-}
-
-// ─── Sheets reconcile (defined at module level — pure, no hooks) ──────────────
-
-function reconcileSheetLeads(sheetLeads, localLeads, addLead, updateLead) {
-  const results = { imported: 0, updated: 0, merged: 0 };
-  const now = new Date().toISOString();
-
-  sheetLeads.forEach(sheetLead => {
-    if (!sheetLead) return;
-    const existing = localLeads.find(l =>
-      (l.email && sheetLead.email && l.email.toLowerCase() === sheetLead.email.toLowerCase()) ||
-      (l.business && sheetLead.business &&
-       l.business.toLowerCase() === sheetLead.business.toLowerCase())
-    );
-
-    if (existing) {
-      updateLead(existing.id, {
-        business:   sheetLead.business  || existing.business,
-        email:      sheetLead.email     || existing.email,
-        phone:      sheetLead.phone     || existing.phone,
-        city:       sheetLead.city      || existing.city,
-        stage:      sheetLead.stage     || existing.stage,
-        aiScore:    sheetLead.aiScore   || existing.aiScore,
-        reviews:    sheetLead.reviews   || existing.reviews,
-        updatedAt:  now,
-        // NEVER overwrite: activities, intelligence, memory, followUps, accountKnowledge
-      });
-      results.updated++;
-    } else {
-      addLead({ ...sheetLead, tags: ['Sheets'], createdAt: now });
-      results.imported++;
-    }
-  });
-
-  return results;
 }
 
 

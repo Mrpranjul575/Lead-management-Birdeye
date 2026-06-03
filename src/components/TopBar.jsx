@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Search, Bell, Command, ChevronRight, HelpCircle, Download, X } from 'lucide-react';
+import { Search, Bell, Command, ChevronRight, HelpCircle, Download, X, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 const LABELS = {
@@ -14,7 +14,7 @@ const LABELS = {
 const NOTIFICATIONS = [];
 
 export default function TopBar({ sidebarWidth=240 }) {
-  const { setClipSearch, theme, view, search, setSearch, activeLead, leads } = useApp();
+  const { setClipSearch, theme, view, search, setSearch, activeLead, leads, syncing } = useApp();
   const [notifOpen, setNotifOpen] = useState(false);
   const dark = theme==='dark';
   const label  = activeLead ? activeLead.business : (LABELS[view]||'Dashboard');
@@ -62,6 +62,14 @@ export default function TopBar({ sidebarWidth=240 }) {
           <ChevronRight size={12} color={dark?'#484F58':'#D1D5DB'}/>
           <span style={{ fontSize:12, fontWeight:600, color:T1 }}>{label}</span>
         </div>
+
+        {/* Syncing indicator — only visible while sheets sync is in progress */}
+        {syncing && (
+          <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0, padding:'3px 10px', borderRadius:99, background:'rgba(91,63,200,0.1)', border:'1px solid rgba(91,63,200,0.25)' }}>
+            <RefreshCw size={11} color="#7C5CE8" style={{ animation:'spin 1s linear infinite' }}/>
+            <span style={{ fontSize:11, fontWeight:500, color:'#7C5CE8' }}>Syncing…</span>
+          </div>
+        )}
 
         {/* Search */}
         <div style={{

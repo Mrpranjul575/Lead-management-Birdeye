@@ -2,7 +2,7 @@ import { useState, useRef } from 'react';
 import { Key, User, Bell, Palette, Shield, Save, Eye, EyeOff,
          CheckCircle2, Copy, ExternalLink, Plus, Trash2, Link2,
          Upload, Camera, Zap, Brain, Database, TestTube,
-         ChevronDown, AlertCircle } from 'lucide-react';
+         ChevronDown, AlertCircle, RefreshCw } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { SheetsAdapter } from '../services/sheetsAdapter';
 
@@ -30,7 +30,7 @@ function Toggle({ on, onChange }) {
 }
 
 export default function Settings() {
-  const { theme, toggleTheme, settings, updateSettings } = useApp();
+  const { theme, toggleTheme, settings, updateSettings, syncing, lastSynced, syncFromSheets } = useApp();
   const dark = theme==='dark';
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const S1=dark?'#161B22':'#FFFFFF', S2=dark?'#0D1117':'#F8F9FA';
@@ -65,6 +65,7 @@ export default function Settings() {
   const [sheetsToken, setSheetsToken] = useState(settings.sheetsToken || '');
   const [testResult,  setTestResult]  = useState(null);
   const [testing,     setTesting]     = useState(false);
+  const [syncLeads,   setSyncLeads]   = useState(settings.syncLeads   ?? false);
 
   // Notifications
   const [notifs, setNotifs] = useState(settings.notifs || {
@@ -75,7 +76,7 @@ export default function Settings() {
     updateSettings({
       name, title, email, avatar, scriptUrl, calLinks,
       aiProvider, claudeKey, geminiKey, copilotPrefs,
-      sheetsId, sheetsToken, notifs,
+      sheetsId, sheetsToken, notifs, syncLeads,
     });
     setSaved(true);
     setTimeout(()=>setSaved(false), 2500);
@@ -373,6 +374,43 @@ export default function Settings() {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* Sync on launch toggle */}
+              <div>
+                <FieldLabel text="Auto Sync" sub="Pull latest leads from Sheets each time the app loads"/>
+                <Row label="Sync leads on app launch" sub="Imports new leads and updates profile fields from your Sheet">
+                  <Toggle on={syncLeads} onChange={v => setSyncLeads(v)}/>
+                </Row>
+              </div>
+
+              {/* Sync Status card */}
+              <div style={{ padding:'14px 16px', borderRadius:10, background:S2, border:`1px solid ${B1}` }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
+                  <div style={{ fontSize:12, fontWeight:600, color:T1 }}>Sync Status</div>
+                  <button
+                    onClick={syncFromSheets}
+                    disabled={syncing}
+                    style={{
+                      display:'flex', alignItems:'center', gap:5,
+                      padding:'6px 12px', borderRadius:7,
+                      border:`1px solid ${B1}`, background:'transparent',
+                      color: syncing ? T2 : T1, fontSize:11, cursor: syncing ? 'not-allowed' : 'pointer',
+                      fontFamily:'inherit', transition:'all 0.15s', opacity: syncing ? 0.6 : 1,
+                    }}
+                    onMouseEnter={e => { if (!syncing) { e.currentTarget.style.borderColor='#5B3FC8'; e.currentTarget.style.color='#7C5CE8'; }}}
+                    onMouseLeave={e => { if (!syncing) { e.currentTarget.style.borderColor=B1; e.currentTarget.style.color=T1; }}}>
+                    <RefreshCw size={12} style={{ animation: syncing ? 'spin 1s linear infinite' : 'none' }}/>
+                    {syncing ? 'Syncing…' : 'Sync Now'}
+                  </button>
+                </div>
+                <div style={{ fontSize:11, color:T2 }}>
+                  {syncing
+                    ? 'Pulling leads from Google Sheets…'
+                    : lastSynced
+                      ? `Last synced: ${new Date(lastSynced).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' })}`
+                      : 'Not yet synced this session.'}
+                </div>
               </div>
             </div>
           )}

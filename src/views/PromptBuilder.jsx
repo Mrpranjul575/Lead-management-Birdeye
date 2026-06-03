@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Code, Lock, Unlock, Save, CheckCircle2, RotateCcw } from 'lucide-react';
+import { Code, Lock, Unlock, Save, CheckCircle2, RotateCcw, Sparkles, X, ExternalLink, Copy } from 'lucide-react';
 import { useTheme } from '../hooks/useTheme';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -156,6 +156,61 @@ function relativeTime(iso) {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
+// ─── Meta-prompt builder — pure function, no side-effects ────────────────────
+function buildSuggestionPrompt(promptText, mode) {
+  const vars = (promptText.match(/{{[^}]+}}/g) || [])
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .join(', ');
+
+  return `You are a senior SDR prompt engineer specialising in B2B outreach for local business software.
+
+Review this "${mode}" outreach prompt and provide exactly 3 improvement suggestions.
+
+CURRENT PROMPT:
+
+${promptText}
+
+VARIABLES USED: ${vars || 'none detected'}
+
+For each suggestion output EXACTLY this format with no deviation:
+
+SUGGESTION 1 TITLE: [short title, max 6 words]
+WHY: [one sentence explaining the conversion impact]
+IMPROVED_LINE: [the specific rewritten line or addition]
+
+SUGGESTION 2 TITLE: [short title]
+WHY: [one sentence]
+IMPROVED_LINE: [specific rewrite]
+
+SUGGESTION 3 TITLE: [short title]
+WHY: [one sentence]
+IMPROVED_LINE: [specific rewrite]
+
+Rules:
+- Only suggest changes to this specific prompt
+- Each IMPROVED_LINE must be a concrete rewrite, not generic advice
+- Focus on: specificity, urgency, social proof, pain-led hooks, CTA clarity
+- No preamble
+- No summary after
+- Output only the 3 suggestion blocks`;
+}
+
+// ─── Suggestion parser — never throws ────────────────────────────────────────
+function parseSuggestions(raw) {
+  if (!raw || typeof raw !== 'string' || !raw.trim()) return [];
+  try {
+    const blocks = raw.split(/SUGGESTION \d+/i).filter(Boolean);
+    return blocks.map(block => {
+      const title       = block.match(/TITLE:\s*(.+)/i)?.[1]?.trim()       || 'Suggestion';
+      const why         = block.match(/WHY:\s*(.+)/i)?.[1]?.trim()         || '';
+      const improvedLine = block.match(/IMPROVED_LINE:\s*([\s\S]+?)(?=SUGGESTION|\n\n|$)/i)?.[1]?.trim() || '';
+      return { title, why, improvedLine };
+    }).filter(s => s.improvedLine);
+  } catch {
+    return [];
+  }
+}
+
 // ─── SegmentedControl — pure presentational, no hooks ────────────────────────
 function SegmentedControl({ options, value, onChange, disabled, T1, T2, S2, S3, B1 }) {
   return (
@@ -194,6 +249,13 @@ export default function PromptBuilder() {
   const [lockNote,      setLockNote]      = useState('');
   const [savedToast,    setSavedToast]    = useState(false);
 
+  // ── Suggest Improvements state ──
+  const [showSuggestPanel,    setShowSuggestPanel]    = useState(false);
+  const [suggestPasteText,    setSuggestPasteText]    = useState('');
+  const [suggestions,         setSuggestions]         = useState([]);
+  const [parsingSuggestions,  setParsingSuggestions]  = useState(false);
+  const [copiedSuggestPrompt, setCopiedSuggestPrompt] = useState(false);
+
   // Ref map for tag pill flash — avoids any state inside map()
   const tagRefs = useRef({});
 
@@ -213,6 +275,10 @@ export default function PromptBuilder() {
       ''
     );
     setLockNote('');
+    // Reset suggestion panel on mode change
+    setShowSuggestPanel(false);
+    setSuggestions([]);
+    setSuggestPasteText('');
   }, [selectedMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Action handlers ──
@@ -240,6 +306,17 @@ export default function PromptBuilder() {
     setOverrides(updOv); setLibrary(updLi);
     saveLS(LS_OVERRIDES, updOv); saveLS(LS_LIBRARY, updLi);
     setEditText(DEFAULT_PROMPTS[selectedMode] || '');
+  };
+
+  const handleParseSuggestions = () => {
+    if (!suggestPasteText.trim()) return;
+    setParsingSuggestions(true);
+    // Synchronous parse — wrapped in setTimeout to give React one tick to show state
+    setTimeout(() => {
+      const parsed = parseSuggestions(suggestPasteText);
+      setSuggestions(parsed);
+      setParsingSuggestions(false);
+    }, 0);
   };
 
   const handleTagClick = (tag) => {
@@ -380,7 +457,23 @@ export default function PromptBuilder() {
               <div style={{ background:S1, border:`1px solid ${B1}`, borderRadius:12, padding:20, display:'flex', flexDirection:'column', gap:12 }}>
                 <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
                   <span style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em' }}>&lt;/&gt; System Instructions</span>
-                  <span style={{ fontSize:10, fontStyle:'italic', color:T2 }}>Markdown and liquid tags supported</span>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <span style={{ fontSize:10, fontStyle:'italic', color:T2 }}>Markdown and liquid tags supported</span>
+                    <button
+                      disabled={isLocked}
+                      onClick={() => setShowSuggestPanel(true)}
+                      style={{
+                        display:'flex', alignItems:'center', gap:5,
+                        padding:'4px 10px', borderRadius:6, fontSize:11, cursor: isLocked ? 'not-allowed' : 'pointer',
+                        background:'rgba(91,63,200,0.1)', border:'1px solid rgba(91,63,200,0.25)',
+                        color:'#7C5CE8', fontFamily:'inherit', fontWeight:500,
+                        opacity: isLocked ? 0.4 : 1, transition:'all 0.15s',
+                      }}
+                      onMouseEnter={e => { if (!isLocked) e.currentTarget.style.background='rgba(91,63,200,0.18)'; }}
+                      onMouseLeave={e => { if (!isLocked) e.currentTarget.style.background='rgba(91,63,200,0.1)'; }}>
+                      ✦ Suggest Improvements
+                    </button>
+                  </div>
                 </div>
                 {isLocked && (
                   <div style={{ background:'rgba(16,185,129,0.07)', border:'1px solid rgba(16,185,129,0.2)', borderRadius:8, padding:'10px 14px', color:'#10B981', fontSize:12 }}>
@@ -393,6 +486,147 @@ export default function PromptBuilder() {
                   onBlur={e => { e.target.style.borderColor=B1; }}/>
                 {!isLocked && <div style={{ fontSize:11, color:T2, fontStyle:'italic' }}>Draft — not yet locked. Lock to make this version permanent.</div>}
               </div>
+
+              {/* SUGGESTION PANEL — only visible when showSuggestPanel === true */}
+              {showSuggestPanel && (
+                <div style={{ background:S1, border:'1px solid rgba(91,63,200,0.3)', borderRadius:12, padding:20, display:'flex', flexDirection:'column', gap:16 }}>
+
+                  {/* Panel header */}
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                      <Sparkles size={15} color="#7C5CE8"/>
+                      <span style={{ fontSize:13, fontWeight:700, color:T1 }}>Prompt Improvement Suggestions</span>
+                    </div>
+                    <button
+                      onClick={() => { setShowSuggestPanel(false); setSuggestions([]); setSuggestPasteText(''); }}
+                      style={{ padding:4, borderRadius:6, border:'none', background:'transparent', cursor:'pointer', color:T2, display:'flex', alignItems:'center' }}
+                      onMouseEnter={e => { e.currentTarget.style.color=T1; e.currentTarget.style.background=S2; }}
+                      onMouseLeave={e => { e.currentTarget.style.color=T2; e.currentTarget.style.background='transparent'; }}>
+                      <X size={14}/>
+                    </button>
+                  </div>
+
+                  {suggestions.length === 0 ? (
+                    /* ── Initial state: show meta-prompt + paste area ── */
+                    <>
+                      {/* Step instructions */}
+                      <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                        {[
+                          { n:'1', text:'Copy the meta-prompt below' },
+                          { n:'2', text:'Open Claude and paste it — no other context needed' },
+                          { n:'3', text:'Paste Claude\'s response into the box below and click Parse' },
+                        ].map(step => (
+                          <div key={step.n} style={{ display:'flex', alignItems:'flex-start', gap:10 }}>
+                            <div style={{ width:20, height:20, borderRadius:'50%', background:'rgba(91,63,200,0.15)', color:'#7C5CE8', fontSize:11, fontWeight:700, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>{step.n}</div>
+                            <span style={{ fontSize:12, color:T2, paddingTop:2 }}>{step.text}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Generated meta-prompt */}
+                      <div>
+                        <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:6 }}>Generated Meta-Prompt</div>
+                        <textarea
+                          readOnly
+                          value={buildSuggestionPrompt(editText, currentAction.label)}
+                          style={{ width:'100%', height:160, padding:12, borderRadius:8, border:`1px solid ${B1}`, background:S2, color:T1, fontSize:11, fontFamily:'JetBrains Mono,monospace', lineHeight:1.6, resize:'none', outline:'none', boxSizing:'border-box', opacity:0.85 }}/>
+                      </div>
+
+                      {/* Copy + Open Claude row */}
+                      <div style={{ display:'flex', gap:8 }}>
+                        <button
+                          onClick={() => {
+                            navigator.clipboard.writeText(buildSuggestionPrompt(editText, currentAction.label)).catch(() => {});
+                            setCopiedSuggestPrompt(true);
+                            setTimeout(() => setCopiedSuggestPrompt(false), 2000);
+                          }}
+                          style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:8, border:`1px solid ${B1}`, background:S2, color: copiedSuggestPrompt ? '#10B981' : T1, fontSize:12, cursor:'pointer', fontFamily:'inherit', fontWeight:500, transition:'all 0.15s' }}
+                          onMouseEnter={e => { if (!copiedSuggestPrompt) e.currentTarget.style.borderColor='#5B3FC8'; }}
+                          onMouseLeave={e => { e.currentTarget.style.borderColor=B1; }}>
+                          <Copy size={13}/>
+                          {copiedSuggestPrompt ? 'Copied!' : 'Copy Prompt'}
+                        </button>
+                        <a
+                          href="https://claude.ai"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:8, border:'1px solid rgba(91,63,200,0.3)', background:'rgba(91,63,200,0.08)', color:'#7C5CE8', fontSize:12, cursor:'pointer', fontFamily:'inherit', fontWeight:500, textDecoration:'none', transition:'all 0.15s' }}
+                          onMouseEnter={e => { e.currentTarget.style.background='rgba(91,63,200,0.15)'; }}
+                          onMouseLeave={e => { e.currentTarget.style.background='rgba(91,63,200,0.08)'; }}>
+                          <ExternalLink size={13}/>
+                          Open Claude
+                        </a>
+                      </div>
+
+                      {/* Paste area */}
+                      <div>
+                        <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:6 }}>Paste Claude's Response</div>
+                        <textarea
+                          value={suggestPasteText}
+                          onChange={e => setSuggestPasteText(e.target.value)}
+                          placeholder="Paste Claude's output here…"
+                          style={{ width:'100%', height:120, padding:12, borderRadius:8, border:`1px solid ${B1}`, background:S2, color:T1, fontSize:12, fontFamily:'inherit', lineHeight:1.6, resize:'vertical', outline:'none', boxSizing:'border-box', transition:'border-color 0.15s' }}
+                          onFocus={e => { e.target.style.borderColor='#5B3FC8'; }}
+                          onBlur={e => { e.target.style.borderColor=B1; }}/>
+                      </div>
+
+                      {/* Parse button */}
+                      <button
+                        onClick={handleParseSuggestions}
+                        disabled={!suggestPasteText.trim() || parsingSuggestions}
+                        style={{ alignSelf:'flex-start', display:'flex', alignItems:'center', gap:6, padding:'8px 16px', borderRadius:8, border:'none', background: (!suggestPasteText.trim() || parsingSuggestions) ? S2 : '#5B3FC8', color: (!suggestPasteText.trim() || parsingSuggestions) ? T2 : '#fff', fontSize:12, fontWeight:600, cursor: (!suggestPasteText.trim() || parsingSuggestions) ? 'not-allowed' : 'pointer', fontFamily:'inherit', transition:'background 0.15s' }}
+                        onMouseEnter={e => { if (suggestPasteText.trim() && !parsingSuggestions) e.currentTarget.style.background='#4828B5'; }}
+                        onMouseLeave={e => { if (suggestPasteText.trim() && !parsingSuggestions) e.currentTarget.style.background='#5B3FC8'; }}>
+                        <Sparkles size={13}/>
+                        {parsingSuggestions ? 'Parsing…' : 'Parse Suggestions'}
+                      </button>
+                    </>
+                  ) : (
+                    /* ── Parsed state: show suggestion cards ── */
+                    <>
+                      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                        {suggestions.map((s, i) => (
+                          <div key={i} style={{ background:S2, border:`1px solid ${B1}`, borderRadius:10, padding:16, display:'flex', flexDirection:'column', gap:10 }}>
+                            {/* Badge + title */}
+                            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                              <span style={{ padding:'2px 8px', borderRadius:99, background:'rgba(91,63,200,0.15)', color:'#7C5CE8', fontSize:10, fontWeight:700 }}>#{i + 1}</span>
+                              <span style={{ fontSize:13, fontWeight:600, color:T1 }}>{s.title}</span>
+                            </div>
+                            {/* Why */}
+                            {s.why && (
+                              <div style={{ fontSize:12, color:T2, lineHeight:1.6 }}>{s.why}</div>
+                            )}
+                            {/* Improved version */}
+                            <div>
+                              <div style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:5 }}>Improved Version</div>
+                              <div style={{ background:BG, border:`1px solid ${B1}`, borderRadius:8, padding:'10px 12px', fontSize:12, fontFamily:'JetBrains Mono,monospace', color:'#7C5CE8', lineHeight:1.6, whiteSpace:'pre-wrap', wordBreak:'break-word' }}>
+                                {s.improvedLine}
+                              </div>
+                            </div>
+                            {/* Apply button */}
+                            <button
+                              onClick={() => setEditText(prev => prev + '\n\n// Suggestion: ' + s.title + '\n' + s.improvedLine)}
+                              style={{ alignSelf:'flex-start', display:'flex', alignItems:'center', gap:5, padding:'6px 12px', borderRadius:7, border:'1px solid rgba(91,63,200,0.3)', background:'rgba(91,63,200,0.08)', color:'#7C5CE8', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', transition:'all 0.15s' }}
+                              onMouseEnter={e => { e.currentTarget.style.background='rgba(91,63,200,0.18)'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background='rgba(91,63,200,0.08)'; }}>
+                              Apply to Prompt
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Clear suggestions */}
+                      <button
+                        onClick={() => { setSuggestions([]); setSuggestPasteText(''); }}
+                        style={{ alignSelf:'flex-start', background:'none', border:'none', fontSize:11, color:T2, cursor:'pointer', fontFamily:'inherit', padding:0, textDecoration:'underline' }}
+                        onMouseEnter={e => { e.currentTarget.style.color=T1; }}
+                        onMouseLeave={e => { e.currentTarget.style.color=T2; }}>
+                        Clear suggestions
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* CARD 3 — Constraints */}
               <div style={{ background:S1, border:`1px solid ${B1}`, borderRadius:12, padding:20, display:'grid', gridTemplateColumns:'1fr 1fr', gap:20 }}>
