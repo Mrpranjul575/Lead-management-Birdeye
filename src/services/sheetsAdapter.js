@@ -22,6 +22,7 @@ export const SheetsAdapter = {
   async pushLead(lead) {
     const competitors = lead.intelligence?.competitors || [];
     const body = {
+      externalId:   lead.externalId     || '',
       rawLead:      lead.aeNotes        || '',
       rawSeo:       lead.seoReport      || '',
       rawAi:        lead.aiReport       || '',
@@ -144,6 +145,25 @@ export const SheetsAdapter = {
     } catch (e) {
       return { ok: false, error: e.message, data: [] };
     }
+  },
+
+  /**
+   * updateLeadFields — Phase 8D-2A stub.
+   *
+   * Reserved for Phase 8D-2B when the Apps Script supports action: 'updateLead'.
+   * Will perform a targeted row-update by externalId (primary) or email (fallback)
+   * instead of appending a new row.
+   *
+   * Currently returns { ok: false } immediately — no network call, no side effects.
+   * No call sites exist yet. This stub reserves the architecture contract.
+   *
+   * @param {object} lead   — the lead object (must have externalId and/or email)
+   * @param {object} fields — profile fields to update (business, phone, city, etc.)
+   * @returns {{ ok: boolean, reason?: string }}
+   */
+  async updateLeadFields(lead, fields) {
+    // Phase 8D-2B: replace with actual POST to SHEETS_URL with action: 'updateLead'
+    return { ok: false, reason: 'Apps Script not yet implemented' };
   },
 };
 

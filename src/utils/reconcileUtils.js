@@ -24,7 +24,12 @@ export function reconcileSheetLeads(sheetLeads, localLeads, addLead, updateLead)
   sheetLeads.forEach(sheetLead => {
     if (!sheetLead) return;
 
+    // Phase 8D-2A: match order — externalId → email → business
+    // Mirrors syncFromSheets exactly. externalId match requires both sides non-empty.
+    // undefined === undefined must NEVER count as a match.
     const existing = localLeads.find(l =>
+      (l.externalId && sheetLead.externalId &&
+        l.externalId === sheetLead.externalId) ||
       (l.email && sheetLead.email &&
         l.email.toLowerCase() === sheetLead.email.toLowerCase()) ||
       (l.business && sheetLead.business &&

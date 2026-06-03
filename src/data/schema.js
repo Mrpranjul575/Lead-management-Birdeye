@@ -37,6 +37,26 @@ export const LEAD_TEMPERATURES = ['Ice Cold', 'Cold', 'Warm', 'Hot', 'On Fire'];
 export const AI_PROVIDERS = ['claude', 'gemini'];
 
 /**
+ * generateExternalId — single authoritative implementation for external IDs.
+ *
+ * Used by:
+ *   - migrateLead() — assigns externalId to leads that lack one
+ *   - addLead() via migrateLead() — new leads receive an externalId at creation
+ *   - future: imports, migrations, BulkCSV
+ *
+ * Uses crypto.randomUUID() when available (modern browsers + Node 19+).
+ * Falls back to a timestamp + random base-36 slug for older environments.
+ *
+ * Never throws. Always returns a non-empty string.
+ */
+export function generateExternalId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+/**
  * createActivity — factory for unified activity entries
  */
 export function createActivity(type, summary, details = {}) {
@@ -618,10 +638,10 @@ export function migrateLead(lead) {
         : null,
     });
 
-    return { ...lead, accountKnowledge: bootstrapped };
+    return { ...lead, accountKnowledge: bootstrapped, externalId: lead.externalId || generateExternalId() };
   }
 
-  if (lead._v4) return lead; // already fully migrated
+  if (lead._v4) return { ...lead, externalId: lead.externalId || generateExternalId() }; // already fully migrated
 
   // Build intelligence from existing scattered data
   const competitors = [];
@@ -672,6 +692,7 @@ export function migrateLead(lead) {
   return {
     ...lead,
     _v4: true,
+    externalId: lead.externalId || generateExternalId(),
 
     // v4 intelligence object
     intelligence: lead.intelligence || createIntelligence({

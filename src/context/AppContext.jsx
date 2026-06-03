@@ -407,7 +407,12 @@ export function AppProvider({ children }) {
 
         data.forEach(sheetLead => {
           if (!sheetLead) return;
+          // Phase 8D-2A: match order — externalId → email → business
+          // externalId match requires both sides to be non-empty strings.
+          // undefined === undefined must NEVER count as a match.
           const existing = currentLeads.find(l =>
+            (l.externalId && sheetLead.externalId &&
+              l.externalId === sheetLead.externalId) ||
             (l.email && sheetLead.email &&
               l.email.toLowerCase() === sheetLead.email.toLowerCase()) ||
             (l.business && sheetLead.business &&
