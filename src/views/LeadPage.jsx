@@ -836,31 +836,59 @@ function OverviewTab({ lead, onCallNotes, onPrepareCall, onFollowUp, onRecording
   );
 }
 
-/* ─── Tab: AE Notes ─── */
+/* ─── Tab: AE Notes — Phase 10A two-column workspace ─── */
 function AENotesTab({ lead }) {
   const { updateLead } = useApp();
   const { T1, T2, B1, S1, S2 } = useTheme();
+
+  // ── Left column state ──
   const [localNotes,   setLocalNotes]   = useState(lead.aeNotes || '');
+  const [localGmb,     setLocalGmb]     = useState(lead.gmbUrl || '');
+  const [localKeyword, setLocalKeyword] = useState(lead.keyword || '');
+  const [localSlUrl,   setLocalSlUrl]   = useState(lead.salesloftUrl || '');
+  const debRef = useRef(null);
+
+  // Accordion open/closed state — keyed by section id
+  const [openSections, setOpenSections] = useState({});
+  const toggleSection = (id) => setOpenSections(s => ({ ...s, [id]: !s[id] }));
+
+  // ── Right column state ──
   const [promptCopied, setPromptCopied] = useState(false);
+  const [copiedAll,    setCopiedAll]    = useState(false);
   const [pastedResult, setPastedResult] = useState('');
   const [showPasteBox, setShowPasteBox] = useState(false);
   const [saved,        setSaved]        = useState(false);
-  const debRef = useRef(null);
 
+  // Raw notes debounced save
   const handleNotesChange = (val) => {
     setLocalNotes(val);
     clearTimeout(debRef.current);
     debRef.current = setTimeout(() => updateLead(lead.id, { aeNotes: val }), 400);
   };
 
+  // Inline field saves (on blur)
+  const saveField = (field, val) => updateLead(lead.id, { [field]: val });
+
+  // Generate: copy prompt + open paste box
   const handleGeneratePrompt = () => {
     const prompt = buildAENotesPrompt(lead);
-    navigator.clipboard.writeText(prompt);
+    navigator.clipboard.writeText(prompt).catch(() => {});
     setPromptCopied(true);
     setShowPasteBox(true);
     setTimeout(() => setPromptCopied(false), 2500);
   };
 
+  // Regenerate: same as generate but resets paste box
+  const handleRegenerate = () => {
+    setPastedResult('');
+    setShowPasteBox(true);
+    const prompt = buildAENotesPrompt(lead);
+    navigator.clipboard.writeText(prompt).catch(() => {});
+    setPromptCopied(true);
+    setTimeout(() => setPromptCopied(false), 2500);
+  };
+
+  // Save generated notes
   const handleSaveAENotes = () => {
     if (!pastedResult.trim()) return;
     const cleaned = pastedResult
@@ -869,105 +897,216 @@ function AENotesTab({ lead }) {
       .replace(/---+/g, '')
       .replace(/\*/g, '')
       .trim();
-    // Phase 8B-2: write generated output to aeNotesGenerated, never to aeNotes.
-    // aeNotes remains the raw SDR research scratchpad — authoritative AI input.
-    // aeNotesGenerated is the structured output — SDR-facing artifact only.
     updateLead(lead.id, { aeNotesGenerated: cleaned });
-    // Do NOT call setLocalNotes(cleaned) — localNotes tracks lead.aeNotes (raw),
-    // which must not be overwritten with the generated output.
     setShowPasteBox(false);
     setPastedResult('');
-    // Sheet export: inline aeNotes: cleaned so the sheet column receives the
-    // generated output as before. lead.aeNotes (raw research) is not sent.
     SheetsAdapter.pushAENotes({ ...lead, aeNotes: cleaned }).catch(() => {});
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
   };
 
+  // Copy All
+  const handleCopyAll = () => {
+    if (!lead.aeNotesGenerated) return;
+    navigator.clipboard.writeText(lead.aeNotesGenerated).catch(() => {});
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 2000);
+  };
+
+  // Shared inline input style
+  const inp = {
+    width:'100%', padding:'6px 10px', borderRadius:7,
+    border:`1px solid ${B1}`, background:'var(--bg)', color:T1,
+    fontSize:11, fontFamily:'inherit', outline:'none', transition:'border-color 0.15s',
+    boxSizing:'border-box',
+  };
+
+  // Accordion section definition
+  const ACCORDIONS = [
+    { id:'ai',  label:'AI Scan Report',    placeholder:'Paste AI visibility scan here…' },
+    { id:'seo', label:'Local SEO Report',  placeholder:'Paste local SEO scan here…' },
+    { id:'rep', label:'Reputation Gap',    placeholder:'Paste reputation / review gap data here…' },
+    { id:'add', label:'Additional Notes',  placeholder:'Any other context, URLs, or observations…' },
+  ];
+
   return (
-    <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-      <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-        <div style={{ flex:1, padding:'8px 12px', borderRadius:9, background:'rgba(91,63,200,0.06)', border:'1px solid rgba(91,63,200,0.2)' }}>
-          <span style={{ fontSize:11, color:T2, lineHeight:1.6 }}>
-            AE Notes are your <strong style={{ color:T1 }}>static research layer</strong> — GMB, competitors, keywords, SEO scans.
-          </span>
+    <div style={{ display:'grid', gridTemplateColumns:'55% 45%', gap:14, alignItems:'start', minHeight:0 }}>
+
+      {/* ══════════ LEFT — Research Panel ══════════ */}
+      <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+
+        {/* Panel header */}
+        <div style={{ fontSize:11, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em' }}>
+          Research Inputs
         </div>
-        <button onClick={handleGeneratePrompt} style={{
-          display:'flex', alignItems:'center', gap:6, padding:'8px 14px',
-          borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff',
-          fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit',
-          boxShadow:'0 4px 12px rgba(91,63,200,0.3)', whiteSpace:'nowrap',
-          transition:'background 0.15s',
-        }}
-          onMouseEnter={e=>e.currentTarget.style.background='#4828B5'}
-          onMouseLeave={e=>e.currentTarget.style.background='#5B3FC8'}>
+
+        {/* Dedicated first-class fields */}
+        <div style={{ display:'flex', flexDirection:'column', gap:8, padding:'12px', borderRadius:10, background:'var(--bg)', border:`1px solid ${B1}` }}>
+          <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:2 }}>Key Fields</div>
+          {[
+            { label:'GMB URL',        val:localGmb,     set:setLocalGmb,     field:'gmbUrl',        ph:'https://g.page/…' },
+            { label:'Primary Keyword',val:localKeyword, set:setLocalKeyword, field:'keyword',       ph:'e.g. dentist austin tx' },
+            { label:'Salesloft URL',  val:localSlUrl,   set:setLocalSlUrl,   field:'salesloftUrl',  ph:'https://app.salesloft.com/…' },
+          ].map(({ label, val, set, field, ph }) => (
+            <div key={field}>
+              <div style={{ fontSize:10, fontWeight:600, color:T2, marginBottom:3 }}>{label}</div>
+              <input
+                value={val}
+                onChange={e => set(e.target.value)}
+                onBlur={e => saveField(field, e.target.value)}
+                placeholder={ph}
+                style={inp}
+                onFocus={e => { e.target.style.borderColor='#5B3FC8'; }}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Raw notes */}
+        <div>
+          <div style={{ fontSize:10, fontWeight:600, color:T2, marginBottom:5 }}>Raw Research Notes</div>
+          <textarea
+            value={localNotes}
+            onChange={e => handleNotesChange(e.target.value)}
+            rows={7}
+            placeholder="Paste research here: competitor review counts, GMB URL, Salesloft URL, keywords, SEO scan…"
+            style={{ ...inp, padding:'10px 12px', fontFamily:'JetBrains Mono,monospace', lineHeight:1.8, resize:'vertical' }}
+            onFocus={e => { e.target.style.borderColor='#5B3FC8'; }}
+            onBlur={e => { e.target.style.borderColor=B1; }}
+          />
+        </div>
+
+        {/* Accordion sections */}
+        {ACCORDIONS.map(({ id, label, placeholder }) => {
+          const isOpen = !!openSections[id];
+          // Accordion text is stored in aeNotes for now — these are display-only
+          // scratch areas within the research panel. Phase 10B will add dedicated fields.
+          const hasDot = false; // reserved for when dedicated storage fields are added
+          return (
+            <div key={id} style={{ border:`1px solid ${B1}`, borderRadius:9, overflow:'hidden' }}>
+              <button
+                onClick={() => toggleSection(id)}
+                style={{ width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:isOpen?'rgba(91,63,200,0.04)':'transparent', border:'none', cursor:'pointer', fontFamily:'inherit', transition:'background 0.12s' }}
+                onMouseEnter={e => { e.currentTarget.style.background='rgba(91,63,200,0.06)'; }}
+                onMouseLeave={e => { e.currentTarget.style.background=isOpen?'rgba(91,63,200,0.04)':'transparent'; }}>
+                <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                  {hasDot && <div style={{ width:6, height:6, borderRadius:'50%', background:'#10B981', flexShrink:0 }}/>}
+                  <span style={{ fontSize:11, fontWeight:500, color:T1 }}>{label}</span>
+                </div>
+                <ChevronDown size={13} color={T2} style={{ transform:isOpen?'rotate(180deg)':'none', transition:'transform 0.15s', flexShrink:0 }}/>
+              </button>
+              {isOpen && (
+                <div style={{ borderTop:`1px solid ${B1}`, padding:'10px 12px', background:'var(--bg)' }}>
+                  <textarea
+                    rows={5}
+                    placeholder={placeholder}
+                    style={{ ...inp, padding:'8px 10px', fontFamily:'JetBrains Mono,monospace', lineHeight:1.7, resize:'vertical', fontSize:11 }}
+                    onFocus={e => { e.target.style.borderColor='#5B3FC8'; }}
+                    onBlur={e => { e.target.style.borderColor=B1; }}
+                  />
+                  <div style={{ fontSize:10, color:T2, marginTop:5, fontStyle:'italic' }}>
+                    Paste content here to include in your prompt context via Raw Research Notes.
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Generate button — bottom of research panel */}
+        <button
+          onClick={handleGeneratePrompt}
+          style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'9px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)', transition:'background 0.15s' }}
+          onMouseEnter={e => e.currentTarget.style.background='#4828B5'}
+          onMouseLeave={e => e.currentTarget.style.background='#5B3FC8'}>
           {promptCopied ? '✓ Prompt Copied!' : '⚡ Generate AE Notes'}
         </button>
       </div>
 
-      {showPasteBox && (
-        <div style={{ background:'var(--bg)', border:'1px solid rgba(91,63,200,0.3)', borderRadius:12, padding:'14px', display:'flex', flexDirection:'column', gap:10 }}>
-          <div style={{ fontSize:12, fontWeight:600, color:T1 }}>
-            Prompt copied — paste in Claude.ai, then paste response below:
-          </div>
-          <textarea
-            value={pastedResult}
-            onChange={e=>setPastedResult(e.target.value)}
-            rows={8}
-            placeholder="Paste Claude's AE Notes response here…"
-            style={{ width:'100%', padding:'10px 12px', borderRadius:8, border:`1px solid ${B1}`, background:S2, color:T1, fontSize:12, fontFamily:'inherit', lineHeight:1.7, resize:'vertical', outline:'none' }}
-          />
-          <div style={{ display:'flex', gap:8 }}>
-            <button onClick={()=>{ setShowPasteBox(false); setPastedResult(''); }} style={{ flex:1, padding:'8px', borderRadius:8, border:`1px solid ${B1}`, background:'transparent', color:T2, fontSize:12, cursor:'pointer', fontFamily:'inherit' }}>
-              Cancel
-            </button>
-            <button onClick={handleSaveAENotes} disabled={!pastedResult.trim()} style={{ flex:2, display:'flex', alignItems:'center', justifyContent:'center', gap:6, padding:'8px', borderRadius:8, border:'none', background:pastedResult.trim()?'#5B3FC8':'rgba(91,63,200,0.3)', color:'#fff', fontSize:12, fontWeight:600, cursor:pastedResult.trim()?'pointer':'not-allowed', fontFamily:'inherit' }}>
-              💾 Save + Push to Sheet
-            </button>
-          </div>
-        </div>
-      )}
+      {/* ══════════ RIGHT — Generated Notes Panel ══════════ */}
+      <div style={{ display:'flex', flexDirection:'column', gap:10, position:'sticky', top:0 }}>
 
-      {saved && (
-        <div style={{ padding:'10px 12px', borderRadius:9, background:'rgba(16,185,129,0.1)', border:'1px solid rgba(16,185,129,0.25)', fontSize:12, fontWeight:600, color:'#10B981' }}>
-          ✓ AE Notes saved and pushed to Google Sheet!
-        </div>
-      )}
-
-      {/* Phase 8B-2: Generated AE Notes display block.
-          Read-only — rendered only when lead.aeNotesGenerated is populated.
-          Visually distinct from the raw notes textarea below.
-          Not editable in-place — re-generate is the workflow. */}
-      {lead.aeNotesGenerated && (
-        <div style={{ border:`1px solid rgba(91,63,200,0.25)`, borderRadius:10, overflow:'hidden' }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(91,63,200,0.06)', borderBottom:`1px solid rgba(91,63,200,0.15)` }}>
-            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              <Sparkles size={12} color="#7C5CE8"/>
-              <span style={{ fontSize:10, fontWeight:700, color:'#7C5CE8', textTransform:'uppercase', letterSpacing:'0.06em' }}>Generated AE Notes</span>
+        {/* Panel header */}
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ fontSize:11, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em' }}>Generated AE Notes</div>
+          {lead.aeNotesGenerated && (
+            <div style={{ display:'flex', gap:6 }}>
+              <button
+                onClick={handleRegenerate}
+                title="Regenerate — copy prompt again"
+                style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 9px', borderRadius:6, border:`1px solid ${B1}`, background:'transparent', color:T2, fontSize:10, cursor:'pointer', fontFamily:'inherit', transition:'all 0.12s' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor='#5B3FC8'; e.currentTarget.style.color=T1; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor=B1; e.currentTarget.style.color=T2; }}>
+                🔄 Regenerate
+              </button>
+              <button
+                onClick={handleCopyAll}
+                style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 9px', borderRadius:6, border:`1px solid ${copiedAll?'rgba(16,185,129,0.4)':'rgba(91,63,200,0.25)'}`, background:copiedAll?'rgba(16,185,129,0.08)':'transparent', color:copiedAll?'#10B981':'#7C5CE8', fontSize:10, cursor:'pointer', fontFamily:'inherit', fontWeight:500, transition:'all 0.12s' }}
+                onMouseEnter={e => { if (!copiedAll) { e.currentTarget.style.background='rgba(91,63,200,0.1)'; }}}
+                onMouseLeave={e => { if (!copiedAll) { e.currentTarget.style.background='transparent'; }}}>
+                <Copy size={11}/> {copiedAll ? 'Copied!' : 'Copy All'}
+              </button>
             </div>
-            <button
-              onClick={() => navigator.clipboard.writeText(lead.aeNotesGenerated).catch(() => {})}
-              style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', borderRadius:6, border:`1px solid rgba(91,63,200,0.25)`, background:'transparent', color:'#7C5CE8', fontSize:10, cursor:'pointer', fontFamily:'inherit', fontWeight:500, transition:'all 0.12s' }}
-              onMouseEnter={e => { e.currentTarget.style.background='rgba(91,63,200,0.12)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background='transparent'; }}>
-              <Copy size={11}/> Copy
-            </button>
-          </div>
-          <pre style={{ margin:0, padding:'12px 14px', fontSize:11, color:T1, fontFamily:'JetBrains Mono,monospace', lineHeight:1.8, whiteSpace:'pre-wrap', wordBreak:'break-word', background:'var(--bg)', maxHeight:320, overflowY:'auto' }}>
-            {lead.aeNotesGenerated}
-          </pre>
+          )}
         </div>
-      )}
 
-      <textarea
-        value={localNotes}
-        onChange={e=>handleNotesChange(e.target.value)}
-        rows={18}
-        placeholder="Paste research here: competitor review counts, GMB URL, Salesloft URL, keywords, SEO scan…"
-        style={{ width:'100%', padding:'14px', borderRadius:10, border:`1px solid ${B1}`, background:'var(--bg)', color:T1, fontSize:12, fontFamily:'JetBrains Mono,monospace', lineHeight:1.8, resize:'vertical', outline:'none', transition:'border-color 0.15s' }}
-        onFocus={e=>e.target.style.borderColor='#5B3FC8'}
-        onBlur={e=>e.target.style.borderColor=B1}
-      />
+        {/* Paste box — shown after Generate */}
+        {showPasteBox && (
+          <div style={{ background:'var(--bg)', border:'1px solid rgba(91,63,200,0.3)', borderRadius:10, padding:'12px', display:'flex', flexDirection:'column', gap:8 }}>
+            <div style={{ fontSize:11, fontWeight:600, color:T1 }}>
+              Prompt copied — paste Claude's response below:
+            </div>
+            <textarea
+              value={pastedResult}
+              onChange={e => setPastedResult(e.target.value)}
+              rows={6}
+              placeholder="Paste Claude's AE Notes response here…"
+              style={{ ...inp, padding:'9px 11px', fontFamily:'inherit', lineHeight:1.7, resize:'vertical' }}
+              onFocus={e => { e.target.style.borderColor='#5B3FC8'; }}
+              onBlur={e => { e.target.style.borderColor=B1; }}
+            />
+            <div style={{ display:'flex', gap:7 }}>
+              <button
+                onClick={() => { setShowPasteBox(false); setPastedResult(''); }}
+                style={{ flex:1, padding:'7px', borderRadius:7, border:`1px solid ${B1}`, background:'transparent', color:T2, fontSize:11, cursor:'pointer', fontFamily:'inherit' }}>
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveAENotes}
+                disabled={!pastedResult.trim()}
+                style={{ flex:2, display:'flex', alignItems:'center', justifyContent:'center', gap:5, padding:'7px', borderRadius:7, border:'none', background:pastedResult.trim()?'#5B3FC8':'rgba(91,63,200,0.3)', color:'#fff', fontSize:11, fontWeight:600, cursor:pastedResult.trim()?'pointer':'not-allowed', fontFamily:'inherit' }}>
+                💾 Save + Push to Sheet
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Save confirmation toast */}
+        {saved && (
+          <div style={{ padding:'9px 12px', borderRadius:8, background:'rgba(16,185,129,0.1)', border:'1px solid rgba(16,185,129,0.25)', fontSize:11, fontWeight:600, color:'#10B981' }}>
+            ✓ AE Notes saved and pushed to Google Sheet!
+          </div>
+        )}
+
+        {/* Generated notes — read-only, scrollable */}
+        {lead.aeNotesGenerated ? (
+          <div style={{ border:`1px solid rgba(91,63,200,0.2)`, borderRadius:10, overflow:'hidden' }}>
+            <pre style={{ margin:0, padding:'12px 14px', fontSize:11, color:T1, fontFamily:'JetBrains Mono,monospace', lineHeight:1.85, whiteSpace:'pre-wrap', wordBreak:'break-word', background:'var(--bg)', maxHeight:'60vh', overflowY:'auto' }}>
+              {lead.aeNotesGenerated}
+            </pre>
+          </div>
+        ) : (
+          /* Empty state — no generated notes yet */
+          <div style={{ border:`1px dashed ${B1}`, borderRadius:10, padding:'40px 20px', textAlign:'center', display:'flex', flexDirection:'column', alignItems:'center', gap:8, opacity:0.6 }}>
+            <Sparkles size={22} color={T2}/>
+            <div style={{ fontSize:12, fontWeight:600, color:T2 }}>No generated notes yet</div>
+            <div style={{ fontSize:11, color:T2, lineHeight:1.5, maxWidth:180 }}>
+              Fill in research inputs, then click<br/>
+              <strong style={{ color:'#7C5CE8' }}>⚡ Generate AE Notes</strong>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
