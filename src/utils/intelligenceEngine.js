@@ -361,6 +361,78 @@ function _emptyBreakdown() {
   };
 }
 
+// ─── deriveRankReasons ────────────────────────────────────────────────────────
+//
+// Phase 12 — Work Queue 2.0
+//
+// Returns a short array of human-readable reason labels explaining why this
+// lead holds its current rank in the Work Queue.
+//
+// CONTRACT
+// ────────
+// deriveRankReasons(lead) → string[]
+//
+// Rules:
+//   - Returns 2–4 labels max (enough context, not a wall of text)
+//   - Score label always first (anchor of the ranking)
+//   - Urgency, cadence, contact recency, signals follow in priority order
+//   - Labels are short (≤ 25 chars) — designed for inline chip display
+//   - Pure function: no React, no side effects, never throws
+//
+// Consumed by:
+//   - WorkQueue.jsx  row sub-label (Phase 12)
+//
+// @param {object} lead
+// @returns {string[]}
+
+export function deriveRankReasons(lead) {
+  if (!lead) return [];
+  const intel    = lead.intelligence || {};
+  const score    = lead.aiScore || 0;
+  const reasons  = [];
+
+  // 1. Score anchor — always present
+  reasons.push(`Score ${score}`);
+
+  // 2. Stage / urgency signal
+  if (lead.stage === 'Hot' || lead.stage === 'Demo Booked') {
+    reasons.push(lead.stage === 'Demo Booked' ? 'Demo booked' : '🔥 Hot lead');
+  } else if (lead.stage === 'Follow Up') {
+    reasons.push('Follow-up due');
+  } else if (lead.stage === 'Re-engage') {
+    reasons.push('Re-engage needed');
+  }
+
+  // 3. Buying signals
+  const bsCount = intel.buyingSignals?.length || 0;
+  if (bsCount > 0) {
+    reasons.push(`${bsCount} buying signal${bsCount > 1 ? 's' : ''}`);
+  }
+
+  // 4. Contact recency — derived from activities[] (real ISO timestamps)
+  const latestTs = (lead.activities || [])[0]?.timestamp;
+  if (latestTs) {
+    const days = Math.floor((Date.now() - new Date(latestTs).getTime()) / 86400000);
+    if (days === 0) {
+      reasons.push('Contacted today');
+    } else if (days >= 7) {
+      reasons.push(`${days}d no contact`);
+    } else if (days >= 3) {
+      reasons.push(`${days}d since touch`);
+    }
+  } else {
+    reasons.push('Never contacted');
+  }
+
+  // 5. Active cadence (cap total at 4)
+  if (reasons.length < 4) {
+    const pending = getPendingSteps(lead);
+    if (pending.length > 0) reasons.push('Active cadence');
+  }
+
+  return reasons.slice(0, 4);
+}
+
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
