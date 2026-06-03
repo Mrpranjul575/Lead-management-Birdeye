@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Calendar, Clock, MessageSquare, Mail, Phone, Link2,
          CheckCircle2, Bell, Zap, ChevronDown } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { ACTIVITY_TYPES } from '../data/schema';
 
 const TYPES = [
   { id:'email',    label:'Email',      icon:Mail,           color:'#7C5CE8', bg:'rgba(91,63,200,0.12)'  },
@@ -32,7 +33,7 @@ function formatDisplay(dateStr, time) {
 }
 
 export default function FollowUpModal({ lead, onClose }) {
-  const { theme, updateLeadMerged, addActivityEntry } = useApp();
+  const { theme, updateLeadMerged, addActivity } = useApp();
   const dark = theme==='dark';
   const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
   const S1=dark?'#161B22':'#FFFFFF', S2=dark?'#0D1117':'#F8F9FA';
@@ -61,7 +62,13 @@ export default function FollowUpModal({ lead, onClose }) {
     updateLeadMerged(lead.id,
       { followUps: newFollowUps, nextAction: `${selectedType.label} — ${formatDisplay(date, time)}` }
     );
-    addActivityEntry(lead.id, `Follow-up scheduled: ${selectedType.label} on ${formatDisplay(date, time)}`);
+    // Phase 9C-2: use ACTIVITY_TYPES.FOLLOW_UP ('Follow Up') instead of
+    // addActivityEntry (which created a 'Note'). Timeline now shows a Calendar
+    // icon for scheduled follow-ups instead of a FileText icon.
+    addActivity(lead.id, ACTIVITY_TYPES.FOLLOW_UP,
+      `Follow-up scheduled: ${selectedType.label} on ${formatDisplay(date, time)}`,
+      { source: 'manual', outcome: 'Scheduled' }
+    );
 
     setSaved(true);
     setTimeout(() => onClose(), 1000);

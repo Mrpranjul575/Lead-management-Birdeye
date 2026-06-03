@@ -88,8 +88,6 @@ export default function ReEngage() {
   // ── Actions ───────────────────────────────────────────────────────────────
   const handleSend = (lead) => {
     // Phase 9B: create a permanent CRM activity instead of local UI state.
-    // This activity appears in the Timeline, Activities tab, and buildTouchHistory()
-    // immediately — it survives refresh, navigation, and sync.
     addActivity(lead.id, 'Email', 'Re-engagement sequence initiated', {
       outcome: 'Sent',
       source:  'reEngage',
@@ -98,9 +96,32 @@ export default function ReEngage() {
 
     // Keep lastTouch display field — visual hint in lead header
     updateLead(lead.id, { lastTouch: 'Just now' });
-    // NOTE: nextAction intentionally NOT set here.
-    // deriveNextBestSuggestions() computes the correct next action from live signals.
-    // Setting a static string here would produce a stale value immediately.
+
+    // Phase 9C-2: schedule a +3 day reply-check follow-up.
+    // Guard: skip if an undone re-engage follow-up already exists —
+    // prevents duplicate reminders if Send Sequence is somehow called twice.
+    const hasActiveReEngageFollowUp = (lead.followUps || []).some(
+      f => !f.done && f.notes && f.notes.includes('re-engagement')
+    );
+    if (!hasActiveReEngageFollowUp) {
+      const replyDate = new Date();
+      replyDate.setDate(replyDate.getDate() + 3);
+      const replyDateStr = replyDate.toISOString().split('T')[0];
+      const display = `Re-engage reply check — ${replyDate.toLocaleDateString('en-US', { month:'short', day:'numeric' })}`;
+      const reEngageFollowUp = {
+        id:        Date.now() + 1,
+        type:      'email',
+        date:      replyDateStr,
+        time:      '09:00',
+        notes:     'Check if re-engagement sequence was replied to',
+        remind:    30,
+        display,
+        leadId:    lead.id,
+        done:      false,
+        createdAt: new Date().toISOString(),
+      };
+      updateLead(lead.id, { followUps: [...(lead.followUps || []), reEngageFollowUp] });
+    }
 
     // Close edit panel if open for this lead
     if (editing === lead.id) setEditing(null);
