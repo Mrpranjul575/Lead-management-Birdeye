@@ -50,6 +50,23 @@ function loadSettings() {
   try { const s=localStorage.getItem(SETTINGS_KEY); return s?JSON.parse(s):{ aiProvider:'claude', geminiKey:'', claudeKey:'' }; } catch { return { aiProvider:'claude' }; }
 }
 
+// ── _fieldLabel — module-level helper (Phase 10D) ────────────────────────────
+// Human-readable AK field name for Knowledge Update activity summaries.
+// Mirrors the same function in timelineUtils.js — kept here to avoid a
+// cross-module import from AppContext into a utils file.
+function _fieldLabel(field) {
+  const LABELS = {
+    competitors:         'Competitor',
+    decisionMakers:      'Decision Maker',
+    currentTools:        'Tool',
+    businessGoals:       'Business Goal',
+    recurringObjections: 'Objection',
+    budget:              'Budget',
+    purchaseTimeline:    'Timeline',
+  };
+  return LABELS[field] || 'Fact';
+}
+
 export function AppProvider({ children }) {
   const [theme,        setTheme]        = useState('dark');
   const [view,         setView]         = useState('workqueue');
@@ -84,15 +101,34 @@ export function AppProvider({ children }) {
   // ── Core lead CRUD ──
   const updateLead = useCallback((id, patch) => {
     setLeads(ls => {
+      const lead = ls.find(l => l.id === id);
       // If stage is changing, fire Sheets status sync before returning new array
       if (patch.stage) {
-        const lead = ls.find(l => l.id === id);
         if (lead?.email) {
           SheetsAdapter.updateStatus(lead.email, patch.stage).catch(() => {});
         }
       }
       return ls.map(l => l.id===id ? applyScore({ ...l, ...patch }) : l);
     });
+    // Phase 10D: log a Status Change activity when stage is updated.
+    // Fires after setLeads so the activity is appended to the already-updated lead.
+    // previousStage is read from current leads snapshot before the patch is applied.
+    if (patch.stage) {
+      setLeads(ls => {
+        const lead = ls.find(l => l.id === id);
+        const previousStage = lead?.stage || null;
+        if (previousStage === patch.stage) return ls; // no-op if stage unchanged
+        const entry = createActivity('Status Change', `Stage changed: ${previousStage || 'New'} → ${patch.stage}`, {
+          previousStage,
+          newStage: patch.stage,
+          source:   'sdr_manual',
+        });
+        return ls.map(l => l.id === id
+          ? { ...l, activities: [entry, ...(l.activities || [])] }
+          : l
+        );
+      });
+    }
   }, []);
 
   const updateLeadMerged = useCallback((id, ...patches) => {
@@ -178,14 +214,29 @@ export function AppProvider({ children }) {
       if (l.id !== leadId) return l;
       return { ...l, accountKnowledge: applyAKReview(l.accountKnowledge, field, identityKey, 'confirmed', updatedValues) };
     }));
-  }, []);
+    // Phase 10D: log a Knowledge Update activity for the approval event.
+    // identityKey is the display name for array fields (e.g. competitor name).
+    addActivity(leadId, 'Knowledge Update', `${_fieldLabel(field)} Approved: ${identityKey || field}`, {
+      action:    'approved',
+      field,
+      identityKey,
+      source:    'sdr_manual',
+    });
+  }, [addActivity]);
 
   const dismissAccountKnowledgeFact = useCallback((leadId, field, identityKey) => {
     setLeads(ls => ls.map(l => {
       if (l.id !== leadId) return l;
       return { ...l, accountKnowledge: applyAKReview(l.accountKnowledge, field, identityKey, 'dismissed') };
     }));
-  }, []);
+    // Phase 10D: log a Knowledge Update activity for the rejection event.
+    addActivity(leadId, 'Knowledge Update', `${_fieldLabel(field)} Rejected: ${identityKey || field}`, {
+      action:    'rejected',
+      field,
+      identityKey,
+      source:    'sdr_manual',
+    });
+  }, [addActivity]);
 
   const bulkConfirmAccountKnowledge = useCallback((leadId) => {
     setLeads(ls => ls.map(l => {
@@ -377,7 +428,21 @@ export function AppProvider({ children }) {
     if (!result) return false;
 
     updateIntelligence(leadId, result);
-    addActivity(leadId, 'AI Generation', 'Lead enriched by Gemini', { source: 'gemini' });
+    // Phase 10D: richer activity details for the Intelligence timeline card.
+    // enrichedFields lists the non-empty fields written so the timeline can
+    // display "Summary, Pain Points, Buying Signals updated" as a subtitle.
+    const enrichedFields = [
+      result.summary        ? 'Summary'        : null,
+      result.painPoints?.length   ? 'Pain Points'   : null,
+      result.buyingSignals?.length ? 'Buying Signals': null,
+      result.objections?.length    ? 'Objections'    : null,
+      result.leadTemperature ? 'Lead Temperature' : null,
+      result.nextBestAction  ? 'Next Best Action' : null,
+    ].filter(Boolean);
+    addActivity(leadId, 'AI Generation', 'Lead enriched by Gemini', {
+      source: 'gemini',
+      enrichedFields,
+    });
     return true;
   }, [leads, settings, updateIntelligence, addActivity]);
 

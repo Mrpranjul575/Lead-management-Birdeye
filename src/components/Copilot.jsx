@@ -137,7 +137,7 @@ function extractNotesJSON(rawText) {
 
 // ── Wizard ────────────────────────────────────────────────────────────────────
 function Wizard({ mode, theme, onBack }) {
-  const { activeLead, copilot, closeCopilot, addTouchEntry, addActivityEntry, updateIntelligence, updateAccountKnowledge, settings } = useApp();
+  const { activeLead, copilot, closeCopilot, addTouchEntry, addActivityEntry, addActivity, updateIntelligence, updateAccountKnowledge, settings } = useApp();
   const [step,        setStep]       = useState(0);
   const [copied,      setCopied]     = useState(false);
   const [saved,       setSaved]      = useState(false);
@@ -359,6 +359,18 @@ function Wizard({ mode, theme, onBack }) {
                 competitors:       competitorItems,
                 lastExtractedFrom: entry?.activityId || null,
                 lastUpdated:       now,
+              });
+              // Phase 10D: log a Knowledge Update activity for each detected competitor.
+              // action:'detected' + extractionContext powers the provenance block in
+              // the Unified Timeline, mirroring ExtractionQuote in PendingCard.
+              competitorItems.forEach(comp => {
+                addActivity(safeLead.id, 'Knowledge Update', `Competitor Detected: ${comp.name}`, {
+                  action:            'detected',
+                  field:             'competitors',
+                  identityKey:       comp.name,
+                  extractionContext: comp.context || null,
+                  source:            'copilot-notes',
+                });
               });
             }
           }

@@ -20,6 +20,7 @@ import FollowUpModal from '../components/FollowUpModal';
 import RecordingUpload from '../components/RecordingUpload';
 import AccountKnowledgeTab, { countPendingAK, countConflicts } from '../components/AccountKnowledgeTab';
 import { getAgeBand, formatAgeLabel } from '../utils/accountKnowledgeUtils';
+import { normalizeEvent, groupByDate, TIMELINE_FILTERS } from '../utils/timelineUtils';
 import { buildAENotesPrompt, buildCadenceStepPrompt } from '../services/prompts';
 import { SheetsAdapter } from '../services/sheetsAdapter';
 import { useTheme } from '../hooks/useTheme';
@@ -1261,151 +1262,302 @@ function AIIntelTab({ lead }) {
 }
 
 /* ─── Tab: Timeline ─── */
+/* ─── TimelineEventCard — single event row ───────────────────────────────── */
+function TimelineEventCard({ ev }) {
+  const T1 = 'var(--t1)', T2 = 'var(--t2)', B1 = 'var(--b1)';
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 12, position: 'relative',
+    }}>
+      {/* Icon circle — on the vertical spine */}
+      <div style={{
+        position: 'absolute', left: -28, top: 2, zIndex: 1,
+        width: 28, height: 28, borderRadius: '50%',
+        background: ev.iconBg,
+        border: `2px solid ${ev.iconColor}30`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontSize: 13, flexShrink: 0,
+        boxShadow: ev.isAI ? `0 0 0 3px ${ev.iconColor}18` : 'none',
+      }}>
+        {ev.icon}
+      </div>
+
+      {/* Card body */}
+      <div style={{
+        flex: 1, background: 'var(--bg)',
+        border: `1px solid ${ev.isAI ? ev.iconColor + '28' : B1}`,
+        borderRadius: 10, padding: '10px 14px',
+        transition: 'border-color 0.15s',
+      }}>
+        {/* Header row: title + time */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: (ev.subtitle || ev.evidence || ev.meta?.length) ? 6 : 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: T1 }}>{ev.title}</span>
+
+            {/* AI pill — decorates any isAI event */}
+            {ev.isAI && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 99,
+                background: ev.iconBg, color: ev.iconColor,
+                letterSpacing: '0.04em',
+              }}>AI</span>
+            )}
+
+            {/* Source badge */}
+            {ev.badge && (
+              <span style={{
+                fontSize: 9, fontWeight: 600, padding: '1px 7px', borderRadius: 99,
+                background: ev.badge.bg, color: ev.badge.color,
+              }}>{ev.badge.label}</span>
+            )}
+
+            {/* Status pill — pending review for detected AK items */}
+            {ev.statusPill && (
+              <span style={{
+                fontSize: 9, fontWeight: 600, padding: '1px 7px', borderRadius: 99,
+                background: ev.statusPill.bg, color: ev.statusPill.color,
+                border: `1px solid ${ev.statusPill.color}30`,
+              }}>{ev.statusPill.label}</span>
+            )}
+
+            {/* Outcome pill */}
+            {ev.outcome && (
+              <span style={{
+                fontSize: 9, fontWeight: 600, padding: '1px 7px', borderRadius: 99,
+                background: outcomeColor(ev.outcome) + '18',
+                color: outcomeColor(ev.outcome),
+              }}>{ev.outcome}</span>
+            )}
+          </div>
+
+          {/* Timestamp */}
+          <span style={{ fontSize: 10, color: T2, flexShrink: 0, whiteSpace: 'nowrap' }}>
+            {new Date(ev.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+
+        {/* Subtitle */}
+        {ev.subtitle && (
+          <p style={{ fontSize: 11, color: T2, lineHeight: 1.6, margin: '0 0 4px' }}>
+            {ev.subtitle}
+          </p>
+        )}
+
+        {/* Structured meta rows */}
+        {ev.meta?.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 14px', marginTop: 4 }}>
+            {ev.meta.map(({ label, value }) => (
+              <span key={label} style={{ fontSize: 10, color: T2 }}>
+                <span style={{ fontWeight: 600, color: T1 }}>{label}:</span> {value}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Extraction context (Knowledge events — Phase 10C-2 / 10D) */}
+        {ev.evidence && (
+          <div style={{
+            marginTop: 6, padding: '5px 9px',
+            borderLeft: `2px solid ${ev.iconColor}50`,
+            borderRadius: '0 5px 5px 0',
+            background: ev.iconBg,
+          }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: ev.iconColor, marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Extraction Context
+            </div>
+            <div style={{
+              fontSize: 10, color: T2, lineHeight: 1.55, fontStyle: 'italic',
+              display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+            }}>
+              "{ev.evidence}"
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ─── Tab: Timeline (Phase 10D — Unified Lead Timeline) ─────────────────── */
 function TimelineTab({ lead }) {
-  const [channelFilter, setChannelFilter] = useState('all');
-  const T1='var(--t1)', T2='var(--t2)', B1='var(--b1)';
+  const [activeFilter, setActiveFilter] = useState('all');
+  const T1 = 'var(--t1)', T2 = 'var(--t2)', B1 = 'var(--b1)';
 
   const actIntel = deriveActivityIntelligence(lead);
 
-  const CHANNEL_FILTERS = [
-    { id:'all',     label:'All'     },
-    { id:'Call',    label:'Calls'   },
-    { id:'Email',   label:'Emails'  },
-    { id:'SMS',     label:'SMS'     },
-    { id:'ai',      label:'AI'      },
-    { id:'cadence', label:'Cadence' },
-  ];
+  // ── Normalize + filter ──────────────────────────────────────────────────
+  const allEvents = (lead.activities || [])
+    .map(normalizeEvent)
+    .filter(Boolean)  // normalizeEvent returns null for silently-excluded types
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-  const allActivities = lead.activities || [];
-  const visibleActivities = channelFilter === 'all'
-    ? allActivities
-    : channelFilter === 'ai'
-      ? allActivities.filter(a => ['AI Generation','Transcript'].includes(a.type))
-      : channelFilter === 'cadence'
-        ? allActivities.filter(a => a.type === 'Cadence Update')
-        : allActivities.filter(a => a.type === channelFilter);
+  const visibleEvents = activeFilter === 'all'
+    ? allEvents
+    : activeFilter === 'calls'
+      ? allEvents.filter(ev => ev.filterKey === 'calls')
+      : allEvents.filter(ev => ev.filterKey === activeFilter || ev.category === activeFilter);
 
-  const sorted  = [...visibleActivities].sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp));
-  const grouped = sorted.reduce((acc, a) => {
-    const d = new Date(a.timestamp).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
-    if (!acc[d]) acc[d]=[];
-    acc[d].push(a);
-    return acc;
-  }, {});
+  const grouped = groupByDate(visibleEvents);
 
-  // Memory entries — included in the timeline as chips (read-only)
+  // Memory entries — appended at bottom when filter is 'all'
   const memoryEntries = lead.memory || [];
 
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
+  // Per-filter event counts for badge display
+  const countFor = (filterId) => {
+    if (filterId === 'all') return allEvents.length;
+    if (filterId === 'calls') return allEvents.filter(ev => ev.filterKey === 'calls').length;
+    return allEvents.filter(ev => ev.filterKey === filterId || ev.category === filterId).length;
+  };
 
-      {/* Relationship Summary header */}
-      <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:14, paddingBottom:12, borderBottom:`1px solid ${B1}` }}>
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+
+      {/* ── Relationship summary chips ────────────────────────────────── */}
+      <div style={{
+        display: 'flex', gap: 5, flexWrap: 'wrap',
+        marginBottom: 14, paddingBottom: 12,
+        borderBottom: `1px solid ${B1}`,
+      }}>
         <span style={{
-          fontSize:10, padding:'2px 7px', borderRadius:99, fontWeight:600,
-          background: actIntel.daysSinceLastContact === null  ? 'rgba(139,148,158,0.12)'
-                    : actIntel.daysSinceLastContact > 7       ? 'rgba(239,68,68,0.1)'
-                    : actIntel.daysSinceLastContact > 3       ? 'rgba(245,158,11,0.1)'
+          fontSize: 10, padding: '2px 7px', borderRadius: 99, fontWeight: 600,
+          background: actIntel.daysSinceLastContact === null ? 'rgba(139,148,158,0.12)'
+                    : actIntel.daysSinceLastContact > 7      ? 'rgba(239,68,68,0.1)'
+                    : actIntel.daysSinceLastContact > 3      ? 'rgba(245,158,11,0.1)'
                     : 'rgba(16,185,129,0.1)',
-          color: actIntel.daysSinceLastContact === null  ? '#8B949E'
-               : actIntel.daysSinceLastContact > 7       ? '#F87171'
-               : actIntel.daysSinceLastContact > 3       ? '#FCD34D'
+          color: actIntel.daysSinceLastContact === null ? '#8B949E'
+               : actIntel.daysSinceLastContact > 7      ? '#F87171'
+               : actIntel.daysSinceLastContact > 3      ? '#FCD34D'
                : '#34D399',
         }}>
           {actIntel.daysSinceLastContact === null ? 'Never contacted'
-           : actIntel.daysSinceLastContact === 0 ? 'Contacted today'
+           : actIntel.daysSinceLastContact === 0  ? 'Contacted today'
            : `${actIntel.daysSinceLastContact}d since contact`}
         </span>
         {actIntel.hasReplied && (
-          <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:'rgba(16,185,129,0.1)', color:'#34D399', fontWeight:600 }}>✓ Has replied</span>
+          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: 'rgba(16,185,129,0.1)', color: '#34D399', fontWeight: 600 }}>
+            ✓ Has replied
+          </span>
         )}
         {actIntel.consecutiveFailures >= 2 && (
-          <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:'rgba(239,68,68,0.1)', color:'#F87171', fontWeight:600 }}>
+          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: 'rgba(239,68,68,0.1)', color: '#F87171', fontWeight: 600 }}>
             ⚠ {actIntel.consecutiveFailures}× no answer
           </span>
         )}
         {actIntel.totalOutreach > 0 && (
-          <span style={{ fontSize:10, padding:'2px 7px', borderRadius:99, background:'rgba(139,148,158,0.1)', color:T2 }}>
+          <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: 'rgba(139,148,158,0.1)', color: T2 }}>
             {actIntel.totalOutreach} outreach logged
           </span>
         )}
       </div>
 
-      {/* Channel filter bar */}
-      <div style={{ display:'flex', gap:4, marginBottom:14 }}>
-        {CHANNEL_FILTERS.map(f => {
-          const active = channelFilter === f.id;
+      {/* ── Filter bar ───────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, flexWrap: 'wrap' }}>
+        {TIMELINE_FILTERS.map(f => {
+          const active = activeFilter === f.id;
+          const count  = countFor(f.id);
           return (
-            <button key={f.id} onClick={() => setChannelFilter(f.id)} style={{
-              padding:'4px 10px', borderRadius:99, border:'none', cursor:'pointer',
-              background: active ? 'var(--p)' : 'var(--s3)',
-              color: active ? '#fff' : T2,
-              fontSize:10, fontWeight: active ? 600 : 400,
-              fontFamily:'inherit', transition:'all 0.12s',
-            }}>
+            <button
+              key={f.id}
+              onClick={() => setActiveFilter(f.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 5,
+                padding: '4px 10px', borderRadius: 99, border: 'none',
+                cursor: 'pointer', fontFamily: 'inherit', transition: 'all 0.12s',
+                background: active ? 'var(--p)' : 'var(--s3)',
+                color: active ? '#fff' : T2,
+                fontSize: 10, fontWeight: active ? 600 : 400,
+              }}
+            >
               {f.label}
+              {count > 0 && (
+                <span style={{
+                  fontSize: 9, fontWeight: 700,
+                  opacity: active ? 0.85 : 0.55,
+                }}>
+                  {count}
+                </span>
+              )}
             </button>
           );
         })}
       </div>
 
-      {/* Timeline entries */}
-      {Object.keys(grouped).length===0 && memoryEntries.length===0 ? (
-        <div style={{ textAlign:'center', padding:'48px', color:T2 }}>
-          {channelFilter === 'all'
-            ? 'No timeline entries yet. Add call notes or log activities to build the history.'
-            : `No ${CHANNEL_FILTERS.find(f=>f.id===channelFilter)?.label || channelFilter} entries yet.`}
+      {/* ── Empty state ──────────────────────────────────────────────── */}
+      {grouped.length === 0 && (activeFilter !== 'all' || memoryEntries.length === 0) && (
+        <div style={{ textAlign: 'center', padding: '48px 16px', color: T2 }}>
+          <div style={{ fontSize: 24, marginBottom: 10, opacity: 0.3 }}>📋</div>
+          <div style={{ fontSize: 12, marginBottom: 4 }}>
+            {activeFilter === 'all'
+              ? 'No timeline entries yet.'
+              : `No ${TIMELINE_FILTERS.find(f => f.id === activeFilter)?.label || activeFilter} events yet.`}
+          </div>
+          <div style={{ fontSize: 11 }}>
+            {activeFilter === 'all' ? 'Log a call, run a cadence step, or enrich with AI to start the timeline.' : ''}
+          </div>
         </div>
-      ) : (
-        <>
-          {Object.entries(grouped).map(([date, items])=>(
-            <div key={date}>
-              <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 0 8px', borderBottom:`1px solid ${B1}`, marginBottom:12 }}>{date}</div>
-              <div style={{ display:'flex', flexDirection:'column', gap:10, marginBottom:20, position:'relative', paddingLeft:40 }}>
-                <div style={{ position:'absolute', left:14, top:0, bottom:-20, width:2, background:B1 }}/>
-                {items.map((a,i)=>(
-                  <div key={a.activityId||i} style={{ display:'flex', alignItems:'flex-start', gap:12, position:'relative' }}>
-                    <div style={{ position:'absolute', left:-26, zIndex:1 }}>
-                      <ActivityIcon type={a.type} outcome={a.outcome}/>
-                    </div>
-                    <div style={{ background:'var(--bg)', border:`1px solid ${B1}`, borderRadius:10, padding:'10px 14px', flex:1 }}>
-                      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:a.details?.content?6:0 }}>
-                        <span style={{ fontSize:12, fontWeight:600, color:T1 }}>{a.summary}</span>
-                        <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                          {a.outcome && <span style={{ fontSize:10, fontWeight:600, color:outcomeColor(a.outcome) }}>{a.outcome}</span>}
-                          <span style={{ fontSize:10, color:T2 }}>{new Date(a.timestamp).toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span>
-                        </div>
-                      </div>
-                      {a.details?.content && <p style={{ fontSize:11, color:T2, lineHeight:1.6, margin:0 }}>{a.details.content}</p>}
-                      {a.details?.nextStep && <p style={{ fontSize:11, color:'#7C5CE8', margin:'4px 0 0', fontWeight:500 }}>→ {a.details.nextStep}</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+      )}
 
-          {/* Memory entries — shown at bottom of timeline when filter is 'all', read-only chips */}
-          {channelFilter === 'all' && memoryEntries.length > 0 && (
-            <div>
-              <div style={{ fontSize:10, fontWeight:700, color:T2, textTransform:'uppercase', letterSpacing:'0.06em', padding:'14px 0 8px', borderBottom:`1px solid ${B1}`, marginBottom:12 }}>
-                Memory &amp; Context
+      {/* ── Grouped event list ────────────────────────────────────────── */}
+      {grouped.map(({ dateLabel, events: dayEvents }) => (
+        <div key={dateLabel} style={{ marginBottom: 24 }}>
+          {/* Date header */}
+          <div style={{
+            fontSize: 10, fontWeight: 700, color: T2,
+            textTransform: 'uppercase', letterSpacing: '0.06em',
+            padding: '12px 0 10px',
+            borderBottom: `1px solid ${B1}`,
+            marginBottom: 14,
+          }}>
+            {dateLabel}
+          </div>
+
+          {/* Events for this day — vertical spine layout */}
+          <div style={{ position: 'relative', paddingLeft: 44, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {/* Spine line */}
+            <div style={{
+              position: 'absolute', left: 14, top: 4, bottom: 0,
+              width: 2, background: B1, borderRadius: 99,
+            }} />
+
+            {dayEvents.map((ev, i) => (
+              <TimelineEventCard key={ev.activityId ?? i} ev={ev} />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* ── Memory & Context chips (all filter only, appended at bottom) ─ */}
+      {activeFilter === 'all' && memoryEntries.length > 0 && (
+        <div style={{ marginTop: grouped.length > 0 ? 8 : 0 }}>
+          <div style={{
+            fontSize: 10, fontWeight: 700, color: T2, textTransform: 'uppercase',
+            letterSpacing: '0.06em', padding: '12px 0 10px',
+            borderBottom: `1px solid ${B1}`, marginBottom: 10,
+          }}>
+            Memory &amp; Context
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {memoryEntries.map(m => (
+              <div key={m.id} style={{
+                display: 'flex', alignItems: 'flex-start', gap: 8,
+                padding: '8px 10px', borderRadius: 8,
+                background: 'var(--s2)', border: `1px solid ${B1}`,
+              }}>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#7C5CE8', flexShrink: 0, marginTop: 5 }} />
+                <span style={{ fontSize: 11, color: T1, flex: 1, lineHeight: 1.5 }}>{m.text}</span>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  {m.tag && (
+                    <span style={{ fontSize: 9, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: 'rgba(91,63,200,0.12)', color: '#7C5CE8' }}>
+                      {m.tag}
+                    </span>
+                  )}
+                  <span style={{ fontSize: 9, color: T2 }}>{m.date}</span>
+                </div>
               </div>
-              <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-                {memoryEntries.map(m => (
-                  <div key={m.id} style={{ display:'flex', alignItems:'flex-start', gap:8, padding:'8px 10px', borderRadius:8, background:'var(--s2)', border:`1px solid ${B1}` }}>
-                    <div style={{ width:5, height:5, borderRadius:'50%', background:'#7C5CE8', flexShrink:0, marginTop:5 }}/>
-                    <span style={{ fontSize:11, color:T1, flex:1, lineHeight:1.5 }}>{m.text}</span>
-                    <div style={{ display:'flex', gap:6, flexShrink:0 }}>
-                      {m.tag && <span style={{ fontSize:9, fontWeight:600, padding:'1px 6px', borderRadius:99, background:'rgba(91,63,200,0.12)', color:'#7C5CE8' }}>{m.tag}</span>}
-                      <span style={{ fontSize:9, color:T2 }}>{m.date}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

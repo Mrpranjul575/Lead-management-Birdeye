@@ -7,19 +7,23 @@
  * Activity types — used across the unified activity engine
  */
 export const ACTIVITY_TYPES = {
-  CALL:           'Call',
-  EMAIL:          'Email',
-  SMS:            'SMS',
-  LINKEDIN:       'LinkedIn',
-  VOICEMAIL:      'Voicemail',
-  MEETING:        'Meeting',
-  NOTE:           'Note',
-  AI_GENERATION:  'AI Generation',
-  TRANSCRIPT:     'Transcript',
-  CADENCE_UPDATE: 'Cadence Update',
-  STATUS_CHANGE:  'Status Change',
-  FOLLOW_UP:      'Follow Up',
-  IMPORT:         'Import',
+  CALL:             'Call',
+  EMAIL:            'Email',
+  SMS:              'SMS',
+  LINKEDIN:         'LinkedIn',
+  VOICEMAIL:        'Voicemail',
+  MEETING:          'Meeting',
+  NOTE:             'Note',
+  AI_GENERATION:    'AI Generation',
+  TRANSCRIPT:       'Transcript',
+  CADENCE_UPDATE:   'Cadence Update',
+  STATUS_CHANGE:    'Status Change',
+  FOLLOW_UP:        'Follow Up',
+  IMPORT:           'Import',
+  // Phase 10D — Knowledge Events
+  // Fired when an SDR confirms, dismisses, or when AI detects an AK fact.
+  // Distinct from AI_GENERATION (intelligence signals) — these are trust-model events.
+  KNOWLEDGE_UPDATE: 'Knowledge Update',
 };
 
 export const ACTIVITY_OUTCOMES = {
