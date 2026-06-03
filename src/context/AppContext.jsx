@@ -247,7 +247,9 @@ export function AppProvider({ children }) {
     // Existing touchLog entries on leads are preserved for backward-compat reads
     // (buildTouchHistory, deriveEngagementLevel, computeAiScore all still read it).
     // All new outreach is recorded exclusively in activities[].
-    addActivity(leadId, touch.type||'Email', `${touch.type||'Email'} sent`, {
+    // Phase 10B-3: return the created entry so callers can access activityId
+    // for Account Knowledge provenance (e.g. notes mode intelligence ingestion).
+    return addActivity(leadId, touch.type||'Email', `${touch.type||'Email'} sent`, {
       content: touch.content,
       subject: touch.subject,
       outcome: 'Sent',

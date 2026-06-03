@@ -112,9 +112,32 @@ function Launcher({ theme, onSelect }) {
   );
 }
 
+// ── extractNotesJSON — pure, never throws ─────────────────────────────────────
+// Strips markdown code fences, finds the outermost JSON object, and parses it.
+// Returns the parsed object on success, null on any failure.
+// Used by handleSave() in notes mode to apply extracted intelligence.
+function extractNotesJSON(rawText) {
+  if (!rawText || typeof rawText !== 'string') return null;
+  try {
+    // Strip markdown code fences (```json ... ``` or ``` ... ```)
+    let text = rawText
+      .replace(/^```json\s*/im, '')
+      .replace(/^```\s*/im, '')
+      .replace(/```\s*$/im, '')
+      .trim();
+    // Find outermost JSON object boundaries
+    const start = text.indexOf('{');
+    const end   = text.lastIndexOf('}');
+    if (start === -1 || end === -1 || end <= start) return null;
+    return JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
 // ── Wizard ────────────────────────────────────────────────────────────────────
 function Wizard({ mode, theme, onBack }) {
-  const { activeLead, copilot, closeCopilot, addTouchEntry, addActivityEntry, updateIntelligence, settings } = useApp();
+  const { activeLead, copilot, closeCopilot, addTouchEntry, addActivityEntry, updateIntelligence, updateAccountKnowledge, settings } = useApp();
   const [step,        setStep]       = useState(0);
   const [copied,      setCopied]     = useState(false);
   const [saved,       setSaved]      = useState(false);
@@ -207,7 +230,9 @@ function Wizard({ mode, theme, onBack }) {
         ? cadenceStep.channel
         : mode.charAt(0).toUpperCase() + mode.slice(1);
 
-      addTouchEntry(safeLead.id, {
+      // Phase 10B-3: addTouchEntry now returns the created activity entry.
+      // Capture it so notes mode can use activityId for AK provenance.
+      const entry = addTouchEntry(safeLead.id, {
         type:    activityType,
         channel: activityType,
         content,
@@ -224,6 +249,107 @@ function Wizard({ mode, theme, onBack }) {
           insightVersion:   (safeLead.intelligence?.insightVersion || 0) + 1,
           lastAiUpdate:     new Date().toISOString(),
         });
+      }
+
+      // ── Phase 10B-3: Notes mode — JSON extraction → intelligence ingestion ──
+      //
+      // buildNotesPrompt asks Claude to return a JSON object with fields:
+      //   summary, painPoints, objections, competitors, buyingSignals,
+      //   nextBestAction, leadTemperature, sentiment
+      //
+      // After saving the raw content as an activity (above), attempt to parse
+      // the JSON and apply it to the appropriate destinations:
+      //
+      //   Intelligence (direct, no review gate — scoring signals):
+      //     summary, painPoints, objections, buyingSignals, nextBestAction,
+      //     leadTemperature (+ sentiment fallback)
+      //
+      //   Account Knowledge (pending review — account facts):
+      //     competitors → mergeAccountKnowledge with reviewStatus:'pending'
+      //     The SDR reviews via Account Knowledge tab before they enter prompts.
+      //
+      // String arrays are deduplicated case-insensitively against existing values
+      // to prevent duplicate entries on re-runs.
+      //
+      // extractNotesJSON never throws — returns null on any parse failure.
+      // All downstream guards check `if (notesData)` before proceeding.
+      if (mode === 'notes' && safeLead && content) {
+        const notesData = extractNotesJSON(content);
+        if (notesData) {
+          const now    = new Date().toISOString();
+          const intel  = safeLead.intelligence || {};
+
+          // ── String dedup helper ─────────────────────────────────────────────
+          // Merges new string items into an existing array, skipping case-insensitive
+          // duplicates. Accepts both plain strings and objects with a .name property
+          // (normalises to string before comparison).
+          const dedupeStrings = (existing, incoming) => {
+            if (!Array.isArray(incoming) || incoming.length === 0) return null;
+            const existingLC = (existing || []).map(s =>
+              (typeof s === 'string' ? s : s?.name || '').toLowerCase().trim()
+            );
+            const newItems = incoming
+              .map(s => typeof s === 'string' ? s.trim() : s?.name || String(s))
+              .filter(s => s && !existingLC.includes(s.toLowerCase().trim()));
+            return newItems.length > 0 ? [...(existing || []), ...newItems] : null;
+          };
+
+          // ── Intelligence patch (scoring signals) ────────────────────────────
+          const intelPatch = {};
+          if (notesData.summary)        intelPatch.summary        = notesData.summary;
+          if (notesData.nextBestAction) intelPatch.nextBestAction = notesData.nextBestAction;
+
+          // Validate leadTemperature against known values
+          const validTemps = ['Ice Cold', 'Cold', 'Warm', 'Hot', 'On Fire'];
+          if (notesData.leadTemperature && validTemps.includes(notesData.leadTemperature)) {
+            intelPatch.leadTemperature = notesData.leadTemperature;
+          } else if (!notesData.leadTemperature && notesData.sentiment) {
+            // Fallback: map sentiment to temperature when leadTemperature absent
+            const sentimentMap = {
+              'Very Positive': 'Hot', 'Positive': 'Warm',
+              'Neutral': 'Cold', 'Negative': 'Cold', 'Very Negative': 'Ice Cold',
+            };
+            if (sentimentMap[notesData.sentiment]) {
+              intelPatch.leadTemperature = sentimentMap[notesData.sentiment];
+            }
+          }
+
+          const mergedPainPoints    = dedupeStrings(intel.painPoints,    notesData.painPoints);
+          const mergedObjections    = dedupeStrings(intel.objections,    notesData.objections);
+          const mergedBuyingSignals = dedupeStrings(intel.buyingSignals, notesData.buyingSignals);
+          if (mergedPainPoints)    intelPatch.painPoints    = mergedPainPoints;
+          if (mergedObjections)    intelPatch.objections    = mergedObjections;
+          if (mergedBuyingSignals) intelPatch.buyingSignals = mergedBuyingSignals;
+
+          if (Object.keys(intelPatch).length > 0) {
+            updateIntelligence(safeLead.id, intelPatch);
+          }
+
+          // ── Account Knowledge: competitors (pending review) ─────────────────
+          // competitors is in INTELLIGENCE_REJECTED_FIELDS — must use updateAccountKnowledge.
+          // reviewStatus:'pending' routes them through the AK review flow.
+          // The SDR confirms or dismisses before they enter prompt context.
+          if (Array.isArray(notesData.competitors) && notesData.competitors.length > 0) {
+            const competitorItems = notesData.competitors
+              .map(c => typeof c === 'string' ? c.trim() : c?.name || String(c))
+              .filter(Boolean)
+              .map(name => ({
+                name,
+                strength:    'unknown',
+                context:     '',
+                source:      'copilot-notes',
+                sourceDate:  now,
+                reviewStatus:'pending',
+              }));
+            if (competitorItems.length > 0) {
+              updateAccountKnowledge(safeLead.id, {
+                competitors:       competitorItems,
+                lastExtractedFrom: entry?.activityId || null,
+                lastUpdated:       now,
+              });
+            }
+          }
+        }
       }
       // Phase 8D-1: pushGeneratedContent() removed.
       // Each call appended a full new lead row to the sheet per generation event,
