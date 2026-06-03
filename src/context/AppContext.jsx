@@ -121,53 +121,74 @@ export function AppProvider({ children }) {
   const toggleSidebar = useCallback(() => setSidebarOpen(o => !o), []);
 
   // ── Core lead CRUD ──
+  //
+  // RC-2 FIX — Status Change activity (single-pass implementation)
+  //
+  // ROOT CAUSE OF BUG:
+  //   The previous two-pass implementation called setLeads() twice.
+  //   Pass 1 applied the patch (including the new stage).
+  //   Pass 2 then read lead.stage from the already-mutated state,
+  //   so previousStage === patch.stage was ALWAYS true and the
+  //   no-op guard fired every time. Status Change activities were
+  //   never created.
+  //
+  // FIX:
+  //   Collapse into a single setLeads() call. The functional updater
+  //   receives the PRE-MUTATION leads array, so `l.stage` is the OLD
+  //   stage at the point we capture `previousStage`. The patch is
+  //   applied afterwards with applyScore({...l, ...patch}), so there
+  //   is no window where the comparison is stale.
+  //
+  // INVARIANTS PRESERVED:
+  //   - Sheets status sync fires before the map (unchanged)
+  //   - Score history snapshot logic unchanged
+  //   - scoreLastCalculatedAt written on every pass (unchanged)
+  //   - Status Change activity fires ONLY when stage actually changes
+  //   - Activity is prepended newest-first (immutable audit policy)
   const updateLead = useCallback((id, patch) => {
     setLeads(ls => {
       const lead = ls.find(l => l.id === id);
-      // If stage is changing, fire Sheets status sync before returning new array
-      if (patch.stage) {
-        if (lead?.email) {
-          SheetsAdapter.updateStatus(lead.email, patch.stage).catch(() => {});
-        }
+
+      // Sheets sync — fire before the map, same as before
+      if (patch.stage && lead?.email) {
+        SheetsAdapter.updateStatus(lead.email, patch.stage).catch(() => {});
       }
+
       return ls.map(l => {
         if (l.id !== id) return l;
+
+        // Capture previousStage NOW, before patch is applied.
+        // This is the critical fix — l.stage is still the OLD value here.
+        const previousStage = l.stage || null;
+
         const updated   = applyScore({ ...l, ...patch });
-        // Phase 11: record score history snapshot when aiScore moves.
-        // Same ordering/retention/dedup rules as updateIntelligence — see that
-        // function for the full comment. scoreLastCalculatedAt is always written
-        // here (whether score moves or not) so provenance is available on stage
-        // changes even when the resulting score is the same number.
-        const now      = new Date().toISOString();
+        const now       = new Date().toISOString();
         const intelBase = { ...(updated.intelligence || {}), scoreLastCalculatedAt: now };
+
+        // Phase 11: score history snapshot when aiScore moves
+        let finalIntel = intelBase;
         if (updated.aiScore !== (l.aiScore ?? 0)) {
           const trigger  = patch.stage ? `Stage → ${patch.stage}` : 'Lead fields updated';
           const snapshot = { aiScore: updated.aiScore, timestamp: now, trigger };
           const history  = [snapshot, ...(intelBase.scoreHistory || [])].slice(0, 50);
-          return { ...updated, intelligence: { ...intelBase, scoreHistory: history } };
+          finalIntel = { ...intelBase, scoreHistory: history };
         }
-        return { ...updated, intelligence: intelBase };
+
+        let finalLead = { ...updated, intelligence: finalIntel };
+
+        // Phase 10D / RC-2: Status Change activity — single-pass, no stale read
+        if (patch.stage && previousStage !== patch.stage) {
+          const entry = createActivity(
+            'Status Change',
+            `Stage changed: ${previousStage || 'New'} → ${patch.stage}`,
+            { previousStage, newStage: patch.stage, source: 'sdr_manual' }
+          );
+          finalLead = { ...finalLead, activities: [entry, ...(finalLead.activities || [])] };
+        }
+
+        return finalLead;
       });
     });
-    // Phase 10D: log a Status Change activity when stage is updated.
-    // Fires after setLeads so the activity is appended to the already-updated lead.
-    // previousStage is read from current leads snapshot before the patch is applied.
-    if (patch.stage) {
-      setLeads(ls => {
-        const lead = ls.find(l => l.id === id);
-        const previousStage = lead?.stage || null;
-        if (previousStage === patch.stage) return ls; // no-op if stage unchanged
-        const entry = createActivity('Status Change', `Stage changed: ${previousStage || 'New'} → ${patch.stage}`, {
-          previousStage,
-          newStage: patch.stage,
-          source:   'sdr_manual',
-        });
-        return ls.map(l => l.id === id
-          ? { ...l, activities: [entry, ...(l.activities || [])] }
-          : l
-        );
-      });
-    }
   }, []);
 
   const updateLeadMerged = useCallback((id, ...patches) => {

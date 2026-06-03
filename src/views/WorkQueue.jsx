@@ -8,7 +8,7 @@ import { STAGE_STYLE, INTENT_STYLE } from '../constants/stages';
 import ScoreRing from '../components/ui/ScoreRing';
 import NextBestStep from '../components/NextBestStep';
 import { useApp } from '../context/AppContext';
-import { deriveSignals, deriveActivityIntelligence } from '../utils/intelligenceEngine';
+import { deriveSignals, deriveActivityIntelligence, deriveRankReasons } from '../utils/intelligenceEngine';
 import { getPendingSteps, getCadenceProgress } from '../utils/cadenceUtils';
 
 /* Numeric urgency order for sort comparator — precomputed once, never called in the sort loop */
@@ -303,13 +303,31 @@ export default function WorkQueue() {
                     style={{ width:13, height:13, accentColor:'#5B3FC8', cursor:'pointer' }}/>
                 </div>
 
-                {/* Business name + email — title shows sortReason explanation on hover */}
-                <div style={{ minWidth:0 }} title={`Priority: ${sortReason}`}>
+                {/* Business name + email + rank reasons (Phase 12 Work Queue 2.0) */}
+                <div style={{ minWidth:0 }}>
                   <div style={{ fontSize:12, fontWeight:600, color:T1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                     {lead.business}
                   </div>
-                  <div style={{ fontSize:10, color:T2, fontFamily:'JetBrains Mono,monospace', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                  <div style={{ fontSize:10, color:T2, fontFamily:'JetBrains Mono,monospace', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                     {lead.email}
+                  </div>
+                  {/* Rank reason chips — visible inline, no tooltip required */}
+                  <div style={{ display:'flex', gap:3, flexWrap:'wrap', marginTop:3 }}>
+                    {deriveRankReasons(lead).map((r, i) => (
+                      <span key={i} style={{
+                        fontSize:9, fontWeight:600, padding:'1px 5px', borderRadius:99,
+                        background: r.includes('no contact') || r.includes('Never') ? 'rgba(239,68,68,0.1)'
+                                  : r.includes('signal')                            ? 'rgba(16,185,129,0.1)'
+                                  : r.includes('Hot') || r.includes('Demo')         ? 'rgba(239,68,68,0.1)'
+                                  : r.includes('cadence')                           ? 'rgba(91,63,200,0.1)'
+                                  : 'rgba(139,148,158,0.1)',
+                        color:      r.includes('no contact') || r.includes('Never') ? '#F87171'
+                                  : r.includes('signal')                            ? '#34D399'
+                                  : r.includes('Hot') || r.includes('Demo')         ? '#F87171'
+                                  : r.includes('cadence')                           ? '#7C5CE8'
+                                  : T2,
+                      }}>{r}</span>
+                    ))}
                   </div>
                 </div>
 

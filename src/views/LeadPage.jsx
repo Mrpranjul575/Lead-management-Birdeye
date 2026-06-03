@@ -13,15 +13,16 @@ import { STAGES_ALL, STAGE_STYLE } from '../constants/stages';
 import { ACTIVITY_TYPES, ACTIVITY_OUTCOMES, createActivity, isConfirmed } from '../data/schema';
 import { SEQ_PLAN } from '../constants/cadencePlan';
 import { getPendingSteps, isDayComplete, isCadenceComplete, nextCadenceDay, getCadenceProgress } from '../utils/cadenceUtils';
-import { deriveSignals, deriveActivityIntelligence, buildScoreBreakdown } from '../utils/intelligenceEngine';
+import { deriveSignals, deriveActivityIntelligence, buildScoreBreakdown, deriveRankReasons } from '../utils/intelligenceEngine';
 import ActionCenter from '../components/ActionCenter';
-import NextBestStep from '../components/NextBestStep';
+import { NextActionBanner, SDRWorkspaceTab, AIBriefingTab, PromptContextTab } from '../components/CommandCenter';
+import NextBestStep, { deriveNextBestSuggestions } from '../components/NextBestStep';
 import FollowUpModal from '../components/FollowUpModal';
 import RecordingUpload from '../components/RecordingUpload';
 import AccountKnowledgeTab, { countPendingAK, countConflicts } from '../components/AccountKnowledgeTab';
 import { getAgeBand, formatAgeLabel } from '../utils/accountKnowledgeUtils';
 import { normalizeEvent, groupByDate, TIMELINE_FILTERS } from '../utils/timelineUtils';
-import { buildAENotesPrompt, buildCadenceStepPrompt } from '../services/prompts';
+import { buildLeadContext, buildAENotesPrompt, buildCadenceStepPrompt } from '../services/prompts';
 import { SheetsAdapter } from '../services/sheetsAdapter';
 import { useTheme } from '../hooks/useTheme';
 
@@ -501,6 +502,8 @@ function Bullet({ text, positive }) {
    LEAD TABS
 ═══════════════════════════════════════════════════════════════ */
 const TABS = [
+  { id:'workspace',        label:'Workspace'         },
+  { id:'brief',            label:'Lead Brief'        },
   { id:'overview',         label:'Overview'          },
   { id:'scoring',          label:'Score Explainer'   },
   { id:'ae_notes',         label:'AE Notes'          },
@@ -515,6 +518,7 @@ const TABS = [
   { id:'followups',        label:'Follow Ups'        },
   { id:'memory',           label:'AI Memory'         },
   { id:'cadence',          label:'Cadence'           },
+  { id:'prompt_context',   label:'Prompt Context'    },
 ];
 
 /* ─── Tab: Score Explainer (Phase 11) ────────────────────────────────────── */
@@ -2215,7 +2219,7 @@ function CadenceTab({ lead }) {
 ═══════════════════════════════════════════════════════════════ */
 export default function LeadPage() {
   const { activeLead, closeLead, updateLead, openCopilot } = useApp();
-  const [tab,           setTab]           = useState('overview');
+  const [tab,           setTab]           = useState('workspace');
   const [followUpOpen,  setFollowUpOpen]  = useState(false);
   const [callNotesOpen, setCallNotesOpen] = useState(false);
   const [prepareOpen,   setPrepareOpen]   = useState(false);
@@ -2345,6 +2349,9 @@ export default function LeadPage() {
         </div>
       </div>
 
+      {/* ── Next Action Banner (Phase 12) — persistent, visible on all tabs ── */}
+      <NextActionBanner lead={lead} />
+
       {/* ── Tabs ── */}
       <div style={{ display:'flex', overflowX:'auto', borderBottom:`1px solid ${B1}`, background:'var(--s1)', borderRadius:'12px 12px 0 0', padding:'0 4px' }}>
         {TABS.map(({ id, label })=>{
@@ -2369,6 +2376,8 @@ export default function LeadPage() {
 
       {/* ── Tab content ── */}
       <div style={{ background:'var(--s1)', border:`1px solid ${B1}`, borderTop:'none', borderRadius:'0 0 12px 12px', padding:'20px', minHeight:400 }}>
+        {tab==='workspace'       && <SDRWorkspaceTab  lead={lead} onCallNotes={()=>setCallNotesOpen(true)} onFollowUp={()=>setFollowUpOpen(true)} onTabChange={setTab}/>}
+        {tab==='brief'           && <AIBriefingTab    lead={lead}/>}
         {tab==='overview'        && <OverviewTab    lead={lead} onCallNotes={()=>setCallNotesOpen(true)} onPrepareCall={()=>setPrepareOpen(true)} onFollowUp={()=>setFollowUpOpen(true)} onRecording={()=>setRecordingOpen(true)} onTabChange={setTab}/>}
         {tab==='scoring'         && <ScoreExplainerTab lead={lead}/>}
         {tab==='ae_notes'        && <AENotesTab     lead={lead}/>}
@@ -2383,6 +2392,7 @@ export default function LeadPage() {
         {tab==='followups'       && <FollowUpsTab   lead={lead} onSchedule={()=>setFollowUpOpen(true)}/>}
         {tab==='memory'          && <MemoryTab      lead={lead}/>}
         {tab==='cadence'         && <CadenceTab     lead={lead}/>}
+        {tab==='prompt_context'  && <PromptContextTab lead={lead}/>}
       </div>
 
       {/* Modals */}
