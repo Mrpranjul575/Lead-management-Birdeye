@@ -68,14 +68,21 @@ No markdown. No explanation. JSON only.`;
     const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim();
     const parsed  = JSON.parse(cleaned);
 
+    // Phase 10C: geminiEnrichedAt records when Gemini last wrote scoring-signal
+    // fields (buyingSignals, objections, painPoints, leadTemperature, summary).
+    // Distinct from lastUpdated (which is reset on any intelligence write, including
+    // manual SDR edits). geminiEnrichedAt is set ONLY here — it never changes when
+    // the SDR edits fields manually. Consumed by the AI Intelligence tab badge.
+    const now = new Date().toISOString();
     return {
-      summary:         typeof parsed.summary         === 'string'   ? parsed.summary         : '',
-      painPoints:      Array.isArray(parsed.painPoints)              ? parsed.painPoints      : [],
-      nextBestAction:  typeof parsed.nextBestAction  === 'string'   ? parsed.nextBestAction  : '',
-      leadTemperature: ['Cold','Warm','Hot'].includes(parsed.leadTemperature) ? parsed.leadTemperature : 'Cold',
-      buyingSignals:   Array.isArray(parsed.buyingSignals)           ? parsed.buyingSignals   : [],
-      objections:      Array.isArray(parsed.objections)              ? parsed.objections      : [],
-      lastUpdated:     new Date().toISOString(),
+      summary:          typeof parsed.summary         === 'string'   ? parsed.summary         : '',
+      painPoints:       Array.isArray(parsed.painPoints)              ? parsed.painPoints      : [],
+      nextBestAction:   typeof parsed.nextBestAction  === 'string'   ? parsed.nextBestAction  : '',
+      leadTemperature:  ['Cold','Warm','Hot'].includes(parsed.leadTemperature) ? parsed.leadTemperature : 'Cold',
+      buyingSignals:    Array.isArray(parsed.buyingSignals)           ? parsed.buyingSignals   : [],
+      objections:       Array.isArray(parsed.objections)              ? parsed.objections      : [],
+      lastUpdated:      now,
+      geminiEnrichedAt: now,
     };
   } catch {
     // Network errors, JSON parse failures, malformed response — all return null silently

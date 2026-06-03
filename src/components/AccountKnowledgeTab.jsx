@@ -38,10 +38,13 @@ const FIELD_ORDER = [
 
 // ── Source badge ───────────────────────────────────────────────────────────────
 const SOURCE_META = {
-  transcript: { icon: '🎙', label: 'Transcript', color: '#3B82F6' },
-  call_note:  { icon: '📝', label: 'Call Note',  color: '#10B981' },
-  sdr_manual: { icon: '✏',  label: 'Manual',     color: '#7C5CE8' },
-  migrated:   { icon: '📁', label: 'Migrated',   color: '#8B949E' },
+  transcript:     { icon: '🎙', label: 'Transcript', color: '#3B82F6' },
+  call_note:      { icon: '📝', label: 'Call Note',  color: '#10B981' },
+  sdr_manual:     { icon: '✏',  label: 'Manual',     color: '#7C5CE8' },
+  // Phase 10C-1: copilot-notes — AI-extracted facts from call notes via Copilot
+  // Previously fell through to 'migrated' fallback, showing '📁 Migrated' — incorrect provenance.
+  'copilot-notes': { icon: '🤖', label: 'AI Notes',  color: '#7C5CE8' },
+  migrated:       { icon: '📁', label: 'Migrated',   color: '#8B949E' },
 };
 
 // ── Date helper ────────────────────────────────────────────────────────────────
@@ -266,7 +269,48 @@ function SourceBadge({ source, date }) {
   );
 }
 
+// ── ExtractionQuote — Phase 10C-2 ─────────────────────────────────────────────
+// Renders the verbatim extraction context when available.
+// Only shown for AI-sourced items (copilot-notes) that have non-empty context.
+// Helps SDRs validate the evidence before confirming or dismissing a fact.
+//
+// Design rules:
+//   - Renders only when item.context is a non-empty string
+//   - Does not render for transcript / sdr_manual / call_note / migrated sources
+//     (those sources have no extraction quote to show)
+//   - Visual treatment: left-border quote block, muted purple, 11px
+function ExtractionQuote({ item }) {
+  // Only surface for AI-extracted items that carry a context snippet
+  if (item.source !== 'copilot-notes') return null;
+  const context = typeof item.context === 'string' ? item.context.trim() : '';
+  if (!context) return null;
+
+  return (
+    <div style={{
+      marginTop: 6,
+      padding: '5px 9px',
+      borderLeft: '2px solid rgba(124,92,232,0.4)',
+      borderRadius: '0 5px 5px 0',
+      background: 'rgba(124,92,232,0.05)',
+    }}>
+      <div style={{ fontSize: 9, fontWeight: 700, color: '#7C5CE8', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        Extraction Context
+      </div>
+      <div style={{
+        fontSize: 10, color: 'var(--t2)', lineHeight: 1.55,
+        fontStyle: 'italic',
+        // Clamp long excerpts to 3 lines — SDR can see enough to validate
+        display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+      }}>
+        "{context}"
+      </div>
+    </div>
+  );
+}
+
 // ── PendingCard ────────────────────────────────────────────────────────────────
+// Phase 10C-2: ExtractionQuote rendered below SourceBadge for AI-extracted items.
+// All other rendering is unchanged — no impact on non-copilot-notes sources.
 function PendingCard({ field, identityKey, item, lead }) {
   const { confirmAccountKnowledgeFact, dismissAccountKnowledgeFact } = useApp();
   const meta      = FIELD_META[field];
@@ -299,6 +343,8 @@ function PendingCard({ field, identityKey, item, lead }) {
           <div style={{ fontSize: 11, color: T2, marginBottom: 4 }}>{secondary}</div>
         )}
         <SourceBadge source={item.source} date={formatRelativeDate(item.sourceDate)} />
+        {/* Phase 10C-2: show extraction evidence for AI-sourced facts */}
+        <ExtractionQuote item={item} />
       </div>
 
       {/* Actions */}

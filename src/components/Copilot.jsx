@@ -329,17 +329,30 @@ function Wizard({ mode, theme, onBack }) {
           // competitors is in INTELLIGENCE_REJECTED_FIELDS — must use updateAccountKnowledge.
           // reviewStatus:'pending' routes them through the AK review flow.
           // The SDR confirms or dismisses before they enter prompt context.
+          //
+          // Phase 10C-2: competitors are now returned as { name, context } objects.
+          // context carries the verbatim extraction sentence for provenance display
+          // in PendingCard → ExtractionQuote.
+          // Plain-string fallback retained — safe against prompt format drift.
           if (Array.isArray(notesData.competitors) && notesData.competitors.length > 0) {
             const competitorItems = notesData.competitors
-              .map(c => typeof c === 'string' ? c.trim() : c?.name || String(c))
-              .filter(Boolean)
-              .map(name => ({
+              .map(c => {
+                // Support both { name, context } object shape (Phase 10C-2) and
+                // legacy plain-string shape — never throws on either.
+                const name    = typeof c === 'string' ? c.trim() : (c?.name || String(c)).trim();
+                const context = (typeof c === 'object' && typeof c?.context === 'string')
+                  ? c.context.trim()
+                  : '';
+                return { name, context };
+              })
+              .filter(({ name }) => Boolean(name))
+              .map(({ name, context }) => ({
                 name,
-                strength:    'unknown',
-                context:     '',
-                source:      'copilot-notes',
-                sourceDate:  now,
-                reviewStatus:'pending',
+                strength:     'unknown',
+                context,
+                source:       'copilot-notes',
+                sourceDate:   now,
+                reviewStatus: 'pending',
               }));
             if (competitorItems.length > 0) {
               updateAccountKnowledge(safeLead.id, {

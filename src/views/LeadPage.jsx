@@ -1201,18 +1201,57 @@ function AIIntelTab({ lead }) {
         </div>
       </div>
 
-      {/* AI Recommendation metadata — read-only, shown when any insight has been generated */}
-      {(intel.insightVersion > 0 || intel.lastAiUpdate) && (
-        <div style={{ display:'flex', gap:12, flexWrap:'wrap', padding:'10px 12px', borderRadius:9, background:'var(--bg)', border:`1px solid ${B1}`, fontSize:11, color:T2 }}>
-          <span style={{ fontSize:10, fontWeight:600, color:T2, textTransform:'uppercase', letterSpacing:'0.05em', alignSelf:'center' }}>AI Insights</span>
+      {/* AI enrichment provenance — Phase 10C: geminiEnrichedAt badge
+          Shows when Gemini last wrote scoring-signal fields (buyingSignals,
+          objections, painPoints, leadTemperature, summary). Distinct from
+          lastUpdated, which resets on any write including manual SDR edits.
+          geminiEnrichedAt is only set by enrichSingleLead() → enrichLead().
+          Surfaced here so SDRs know which fields have AI provenance vs manual.
+      */}
+      {(intel.insightVersion > 0 || intel.lastAiUpdate || intel.geminiEnrichedAt) && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+          padding: '10px 14px', borderRadius: 9,
+          background: 'var(--bg)', border: `1px solid ${B1}`,
+        }}>
+          {/* Gemini provenance pill — primary signal */}
+          {intel.geminiEnrichedAt && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '4px 10px', borderRadius: 99,
+              background: 'rgba(59,130,246,0.1)',
+              border: '1px solid rgba(59,130,246,0.25)',
+            }}>
+              <span style={{ fontSize: 11 }}>✨</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color: '#60A5FA' }}>AI Intelligence</span>
+              <span style={{ fontSize: 10, color: 'var(--t2)' }}>
+                Last enriched {(() => {
+                  const ms  = Date.now() - new Date(intel.geminiEnrichedAt).getTime();
+                  const min = Math.floor(ms / 60000);
+                  const hr  = Math.floor(min / 60);
+                  const day = Math.floor(hr / 24);
+                  if (day > 0)  return `${day}d ago`;
+                  if (hr  > 0)  return `${hr}h ago`;
+                  if (min > 0)  return `${min}m ago`;
+                  return 'just now';
+                })()}
+              </span>
+            </div>
+          )}
+          {/* insightVersion — Copilot situational analysis version counter */}
           {intel.insightVersion > 0 && (
-            <span style={{ padding:'2px 8px', borderRadius:99, background:'rgba(91,63,200,0.1)', color:'#7C5CE8', fontSize:10, fontWeight:600 }}>
+            <span style={{
+              padding: '2px 8px', borderRadius: 99,
+              background: 'rgba(91,63,200,0.1)', color: '#7C5CE8',
+              fontSize: 10, fontWeight: 600,
+            }}>
               v{intel.insightVersion}
             </span>
           )}
-          {intel.lastAiUpdate && (
-            <span style={{ fontSize:10 }}>
-              Last updated: {new Date(intel.lastAiUpdate).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}
+          {/* Fallback: lastAiUpdate shown only when no geminiEnrichedAt exists */}
+          {!intel.geminiEnrichedAt && intel.lastAiUpdate && (
+            <span style={{ fontSize: 10, color: T2 }}>
+              Last updated: {new Date(intel.lastAiUpdate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
             </span>
           )}
         </div>

@@ -616,6 +616,11 @@ export function buildNotesPrompt(lead) {
   const override = getPromptOverride('notes');
   if (override) return interpolatePrompt(override, lead);
 
+  // Phase 10C-2: competitors upgraded from plain string array to object array.
+  // Each competitor object carries the verbatim sentence that triggered the extraction
+  // (context field). This powers the ExtractionQuote provenance block in PendingCard,
+  // allowing SDRs to validate the evidence before confirming a fact.
+  // Ingestion in Copilot.jsx handles both object and plain-string shapes for safety.
   return `Extract intelligence from these call notes for ${lead.business || 'this lead'}.
 
 Notes: [paste call notes here]
@@ -624,7 +629,7 @@ Extract and return JSON with:
 - summary (2 sentences)
 - painPoints (array of strings)
 - objections (array of strings)
-- competitors (array of strings)
+- competitors (array of objects: { name: string, context: string } where context is the verbatim sentence from the notes that mentions this competitor)
 - buyingSignals (array of strings)
 - nextBestAction (string)
 - leadTemperature (Cold / Warm / Hot)
