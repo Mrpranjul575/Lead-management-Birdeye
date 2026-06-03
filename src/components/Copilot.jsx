@@ -4,7 +4,7 @@ import { X, Zap, Copy, ExternalLink, CheckCircle2, ArrowRight,
          Brain, GitBranch, FileText, AlignLeft, Smile, Plus,
          ChevronRight, Link2, Loader } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { buildPrompt } from '../services/prompts';
+import { buildPrompt, buildTouchHistory } from '../services/prompts';
 import callAI from '../services/aiProvider';
 import { SheetsAdapter } from '../services/sheetsAdapter';
 
@@ -294,7 +294,7 @@ function Wizard({ mode, theme, onBack }) {
                 <div style={{ fontSize:12, fontWeight:600, color:'#7C5CE8', marginBottom:3 }}>Profile Analysis</div>
                 <p style={{ fontSize:11, color:T2, lineHeight:1.6, margin:0 }}>
                   {safeLead
-                    ? `${safeLead.reviews||0} reviews · ${safeLead.aiVisibility||0}% AI visibility · ${safeLead.touchLog?.length||0} previous touches · Competitor: ${safeLead.intelligence?.competitors?.[0]||safeLead.competitor||'unknown'} · Intent: ${safeLead.intent}`
+                    ? `${safeLead.reviews||0} reviews · ${safeLead.aiVisibility||0}% AI visibility · ${buildTouchHistory(safeLead).length} previous touches · Competitor: ${safeLead.intelligence?.competitors?.[0]||safeLead.competitor||'unknown'} · Intent: ${safeLead.intent}`
                     : 'No lead open — open a lead for personalised output'}
                 </p>
               </div>

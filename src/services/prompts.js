@@ -58,7 +58,10 @@ function interpolatePrompt(template, lead) {
 // activities[] entries that carry real ISO timestamps. This is intentional — the
 // activities[] array is the authoritative modern record; legacy entries act as
 // a fallback for leads that predate the v4 migration.
-function buildTouchHistory(lead) {
+//
+// Exported so Copilot.jsx can use the same count for its "X previous touches"
+// display without reimplementing the merge logic independently.
+export function buildTouchHistory(lead) {
   const DISPLAY_TYPES = new Set([
     'Email', 'SMS', 'Call', 'Voicemail', 'LinkedIn',
     'Meeting', 'Transcript', 'Note', 'Follow Up',
