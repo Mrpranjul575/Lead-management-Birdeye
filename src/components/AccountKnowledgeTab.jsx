@@ -294,7 +294,7 @@ function ExtractionQuote({ item }) {
       background: 'rgba(124,92,232,0.05)',
     }}>
       <div style={{ fontSize: 9, fontWeight: 700, color: '#7C5CE8', marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-        From
+        Extraction Context
       </div>
       <div style={{
         fontSize: 10, color: 'var(--t2)', lineHeight: 1.55,
