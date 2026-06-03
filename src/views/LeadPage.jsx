@@ -1646,8 +1646,8 @@ function CadenceTab({ lead }) {
               {pending && (
                 <div style={{ display:'flex', gap:6, flexShrink:0 }}>
                   <button
-                    onClick={() => openCopilot(CHANNEL_TO_COPILOT_MODE[step.channel] || 'email', lead)}
-                    title={`Generate ${step.channel} in AI Copilot`}
+                    onClick={() => openCopilot('cadenceStep', lead, step)}
+                    title={`Generate ${step.channel} for Day ${step.day} in AI Copilot`}
                     style={{ fontSize:10, padding:'3px 10px', borderRadius:99, border:'1px solid rgba(91,63,200,0.4)', background:'rgba(91,63,200,0.1)', color:'#7C5CE8', cursor:'pointer', fontFamily:'inherit', fontWeight:600, transition:'all 0.12s', flexShrink:0 }}
                     onMouseEnter={e => { e.currentTarget.style.background='rgba(91,63,200,0.2)'; }}
                     onMouseLeave={e => { e.currentTarget.style.background='rgba(91,63,200,0.1)'; }}>

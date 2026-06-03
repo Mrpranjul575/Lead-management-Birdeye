@@ -4,7 +4,7 @@ import { X, Zap, Copy, ExternalLink, CheckCircle2, ArrowRight,
          Brain, GitBranch, FileText, AlignLeft, Smile, Plus,
          ChevronRight, Link2, Loader } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { buildPrompt, buildTouchHistory, normalizeGeneratedContent } from '../services/prompts';
+import { buildPrompt, buildTouchHistory, normalizeGeneratedContent, buildCadenceStepPrompt } from '../services/prompts';
 import callAI from '../services/aiProvider';
 
 const SHORTCUTS = [
@@ -42,6 +42,10 @@ function buildPreview(mode, lead) {
     linkedin: {
       subject: 'LinkedIn Connection',
       body: `Hi ${name},\n\nCame across ${lead.business} while researching ${lead.industry||'businesses'} in ${lead.city||'your area'} — impressive work.\n\nI help businesses with ${(lead.intent||'AI visibility').toLowerCase()}. Thought it might be relevant.\n\nWould you be open to connecting?`,
+    },
+    cadencestep: {
+      subject: 'Cadence Step — context-specific prompt',
+      body: 'This prompt uses your exact cadence step context (channel, day, angle). The full prompt is shown below.',
     },
   };
   return previews[mode] || previews.email;
@@ -129,10 +133,32 @@ function Wizard({ mode, theme, onBack }) {
   // activeLead is the fallback for launches from LeadPage itself.
   // This order ensures Copilot always has context regardless of launch origin.
   const safeLead  = copilot.lead || activeLead || null;
+
+  // Phase 10B-2: cadenceStep mode uses buildCadenceStepPrompt(lead, step).
+  // All other modes use buildPrompt(mode, lead) as before.
+  const cadenceStep = (mode === 'cadencestep') ? copilot.step || {} : null;
+  const rawPrompt = safeLead
+    ? (cadenceStep !== null
+        ? buildCadenceStepPrompt(safeLead, cadenceStep)
+        : buildPrompt(mode, safeLead))
+    : 'Open a lead first.';
+
+  // Cadence-specific header label: "Day 5 — LinkedIn" or step label if present.
+  // Falls back to shortcut from SHORTCUTS array for non-cadenceStep modes.
+  const cadenceStepLabel = cadenceStep !== null
+    ? (cadenceStep.day && cadenceStep.channel
+        ? `Day ${cadenceStep.day} — ${cadenceStep.channel}`
+        : cadenceStep.label || cadenceStep.name || 'Cadence Step')
+    : null;
+
   const preview   = buildPreview(mode, safeLead);
-  const rawPrompt = safeLead ? buildPrompt(mode, safeLead) : 'Open a lead first.';
   const pct       = step===0?33:step===1?66:100;
   const shortcut  = SHORTCUTS.find(s=>s.id===mode) || SHORTCUTS[0];
+
+  // For cadenceStep: synthesize a shortcut-like object with step-specific label.
+  const displayShortcut = cadenceStepLabel
+    ? { ...shortcut, label: cadenceStepLabel, icon: GitBranch, color: '#7C5CE8', bg: 'rgba(91,63,200,0.12)' }
+    : shortcut;
 
   // ── Gemini: generate directly ──
   const handleGenerate = async () => {
@@ -175,14 +201,20 @@ function Wizard({ mode, theme, onBack }) {
     const content = parsed.body || rawContent.trim();  // trim-only fallback if body empty after normalization
 
     if (safeLead) {
+      // Phase 10B-2: cadenceStep uses the step's channel as the activity type
+      // (e.g. 'Email', 'SMS', 'LinkedIn') instead of the literal string 'Cadencestep'.
+      const activityType = (cadenceStep !== null && cadenceStep.channel)
+        ? cadenceStep.channel
+        : mode.charAt(0).toUpperCase() + mode.slice(1);
+
       addTouchEntry(safeLead.id, {
-        type:    mode.charAt(0).toUpperCase() + mode.slice(1),
-        channel: mode,
+        type:    activityType,
+        channel: activityType,
         content,
         subject: parsed.subject,
         date:    new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       });
-      addActivityEntry(safeLead.id, `${shortcut.label} generated via AI Copilot (${isGemini ? 'Gemini' : 'Claude'})`);
+      addActivityEntry(safeLead.id, `${displayShortcut.label} generated via AI Copilot (${isGemini ? 'Gemini' : 'Claude'})`);
 
       // Persist AI recommendation for situational analysis only.
       // Email / SMS / VM / LinkedIn / cadence outputs are ephemeral drafts.
@@ -215,10 +247,10 @@ function Wizard({ mode, theme, onBack }) {
           <button onClick={onBack} style={{ padding:'3px 8px', borderRadius:6, border:'none', background:'transparent', cursor:'pointer', color:T2, fontSize:11, fontFamily:'inherit' }}>← Back</button>
           <ChevronRight size={11} color={dark?'#484F58':'#D1D5DB'}/>
           <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-            <div style={{ width:20, height:20, borderRadius:5, background:shortcut.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
-              <shortcut.icon size={11} color={shortcut.color}/>
+            <div style={{ width:20, height:20, borderRadius:5, background:displayShortcut.bg, display:'flex', alignItems:'center', justifyContent:'center' }}>
+              <displayShortcut.icon size={11} color={displayShortcut.color}/>
             </div>
-            <span style={{ fontSize:12, fontWeight:600, color:T1 }}>{shortcut.label}</span>
+            <span style={{ fontSize:12, fontWeight:600, color:T1 }}>{displayShortcut.label}</span>
           </div>
           {/* Provider badge */}
           <div style={{ marginLeft:'auto', display:'flex', alignItems:'center', gap:4, padding:'2px 8px', borderRadius:99, background:isGemini?'rgba(59,130,246,0.1)':'rgba(91,63,200,0.1)', border:`1px solid ${isGemini?'rgba(59,130,246,0.25)':'rgba(91,63,200,0.25)'}` }}>

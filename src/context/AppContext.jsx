@@ -58,7 +58,7 @@ export function AppProvider({ children }) {
   const [cadences,     setCadences]     = useState(loadCadences);
   const [activeLeadId, setActiveLeadId] = useState(null); // P1-A: single source of truth
   const [selected,     setSelected]     = useState(new Set());
-  const [copilot,      setCopilot]      = useState({ open:false, mode:null, lead:null });
+  const [copilot,      setCopilot]      = useState({ open:false, mode:null, lead:null, step:null });
   const [search,       setSearch]       = useState('');
   const [settings,     setSettings]     = useState(loadSettings);
   const [clipSearch,   setClipSearch]   = useState(false);
@@ -269,10 +269,13 @@ export function AppProvider({ children }) {
   const closeLead = useCallback(() => setActiveLeadId(null), []);
 
   // ── Copilot ──
-  const openCopilot  = useCallback((mode, lead=null) => {
-    setCopilot({ open:true, mode: mode?.toLowerCase()||'email', lead });
+  // Phase 10B-2: added optional step parameter for cadenceStep launches.
+  // All existing call sites omit step — they receive null and are unaffected.
+  // CadenceTab passes the actual step object: openCopilot('cadenceStep', lead, step)
+  const openCopilot  = useCallback((mode, lead=null, step=null) => {
+    setCopilot({ open:true, mode: mode?.toLowerCase()||'email', lead, step });
   }, []);
-  const closeCopilot = useCallback(() => setCopilot({ open:false, mode:null, lead:null }), []);
+  const closeCopilot = useCallback(() => setCopilot({ open:false, mode:null, lead:null, step:null }), []);
 
   // ── Cadence Execution ──
   const markStepComplete = useCallback((leadId, stepKey, cadenceDay) => {
