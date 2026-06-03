@@ -711,6 +711,13 @@ export function migrateLead(lead) {
     activity:  lead.activity  || [],
     memory:    lead.memory    || [],
     followUps: lead.followUps || [],
+
+    // Phase 8B-2: separate raw research notes from generated AE Notes output.
+    // aeNotes          = SDR raw research (GMB, competitors, keywords, scan reports)
+    // aeNotesGenerated = structured output from Generate AE Notes workflow
+    // Defaulting here ensures new migrations carry the field forward.
+    // Existing _v4 leads receive the field on next save (no forced re-migration needed).
+    aeNotesGenerated: lead.aeNotesGenerated || '',
   };
 }
 

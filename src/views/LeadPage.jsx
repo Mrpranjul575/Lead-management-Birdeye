@@ -869,10 +869,16 @@ function AENotesTab({ lead }) {
       .replace(/---+/g, '')
       .replace(/\*/g, '')
       .trim();
-    updateLead(lead.id, { aeNotes: cleaned });
-    setLocalNotes(cleaned);
+    // Phase 8B-2: write generated output to aeNotesGenerated, never to aeNotes.
+    // aeNotes remains the raw SDR research scratchpad — authoritative AI input.
+    // aeNotesGenerated is the structured output — SDR-facing artifact only.
+    updateLead(lead.id, { aeNotesGenerated: cleaned });
+    // Do NOT call setLocalNotes(cleaned) — localNotes tracks lead.aeNotes (raw),
+    // which must not be overwritten with the generated output.
     setShowPasteBox(false);
     setPastedResult('');
+    // Sheet export: inline aeNotes: cleaned so the sheet column receives the
+    // generated output as before. lead.aeNotes (raw research) is not sent.
     SheetsAdapter.pushAENotes({ ...lead, aeNotes: cleaned }).catch(() => {});
     setSaved(true);
     setTimeout(() => setSaved(false), 2500);
@@ -925,6 +931,31 @@ function AENotesTab({ lead }) {
       {saved && (
         <div style={{ padding:'10px 12px', borderRadius:9, background:'rgba(16,185,129,0.1)', border:'1px solid rgba(16,185,129,0.25)', fontSize:12, fontWeight:600, color:'#10B981' }}>
           ✓ AE Notes saved and pushed to Google Sheet!
+        </div>
+      )}
+
+      {/* Phase 8B-2: Generated AE Notes display block.
+          Read-only — rendered only when lead.aeNotesGenerated is populated.
+          Visually distinct from the raw notes textarea below.
+          Not editable in-place — re-generate is the workflow. */}
+      {lead.aeNotesGenerated && (
+        <div style={{ border:`1px solid rgba(91,63,200,0.25)`, borderRadius:10, overflow:'hidden' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'8px 12px', background:'rgba(91,63,200,0.06)', borderBottom:`1px solid rgba(91,63,200,0.15)` }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <Sparkles size={12} color="#7C5CE8"/>
+              <span style={{ fontSize:10, fontWeight:700, color:'#7C5CE8', textTransform:'uppercase', letterSpacing:'0.06em' }}>Generated AE Notes</span>
+            </div>
+            <button
+              onClick={() => navigator.clipboard.writeText(lead.aeNotesGenerated).catch(() => {})}
+              style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', borderRadius:6, border:`1px solid rgba(91,63,200,0.25)`, background:'transparent', color:'#7C5CE8', fontSize:10, cursor:'pointer', fontFamily:'inherit', fontWeight:500, transition:'all 0.12s' }}
+              onMouseEnter={e => { e.currentTarget.style.background='rgba(91,63,200,0.12)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background='transparent'; }}>
+              <Copy size={11}/> Copy
+            </button>
+          </div>
+          <pre style={{ margin:0, padding:'12px 14px', fontSize:11, color:T1, fontFamily:'JetBrains Mono,monospace', lineHeight:1.8, whiteSpace:'pre-wrap', wordBreak:'break-word', background:'var(--bg)', maxHeight:320, overflowY:'auto' }}>
+            {lead.aeNotesGenerated}
+          </pre>
         </div>
       )}
 
