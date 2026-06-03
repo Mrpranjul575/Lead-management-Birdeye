@@ -6,7 +6,6 @@ import { X, Zap, Copy, ExternalLink, CheckCircle2, ArrowRight,
 import { useApp } from '../context/AppContext';
 import { buildPrompt, buildTouchHistory, normalizeGeneratedContent } from '../services/prompts';
 import callAI from '../services/aiProvider';
-import { SheetsAdapter } from '../services/sheetsAdapter';
 
 const SHORTCUTS = [
   { id:'email',       icon:Mail,          label:'Generate Email',    desc:'Hyper-personalised outreach email',  color:'#7C5CE8', bg:'rgba(91,63,200,0.12)'  },
@@ -194,18 +193,11 @@ function Wizard({ mode, theme, onBack }) {
           lastAiUpdate:     new Date().toISOString(),
         });
       }
-
-      // Push generated content to Google Sheets
-      const generatedEmails = {};
-      if (mode === 'email')     generatedEmails.email1 = content;
-      if (mode === 'sms')       generatedEmails.sms1   = content;
-      if (mode === 'voicemail') generatedEmails.email2 = content;
-      if (mode === 'linkedin')  generatedEmails.email3 = content;
-      if (mode === 'notes')     generatedEmails.email1 = content;
-
-      if (Object.keys(generatedEmails).length > 0) {
-        SheetsAdapter.pushGeneratedContent(safeLead, generatedEmails).catch(() => {});
-      }
+      // Phase 8D-1: pushGeneratedContent() removed.
+      // Each call appended a full new lead row to the sheet per generation event,
+      // creating duplicate rows (email1=email body, email2=voicemail, email3=LinkedIn).
+      // Generated content is ephemeral SDR drafting output — it does not belong
+      // in the lead profile sheet. The SDR copies content manually when needed.
     }
 
     setSaved(true);

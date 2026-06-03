@@ -113,10 +113,17 @@ export function AppProvider({ children }) {
       seqLog:     lead.seqLog     || {},
     }));
     setLeads(ls => [newLead, ...ls]);
-    // Push to Google Sheets Web App
-    setTimeout(() => {
-      SheetsAdapter.pushLead(newLead).catch(() => {});
-    }, 0);
+    // Push to Google Sheets Web App.
+    // Phase 8D-1: skip pushLead() for leads that originate FROM the sheet.
+    // tags: ['Sheets'] is set by syncFromSheets() and BulkCSV sheet import.
+    // Pushing these back would create the syncFromSheets → addLead → pushLead
+    // feedback loop that generates duplicate rows on every sync cycle.
+    const isSheetOrigin = Array.isArray(newLead.tags) && newLead.tags.includes('Sheets');
+    if (!isSheetOrigin) {
+      setTimeout(() => {
+        SheetsAdapter.pushLead(newLead).catch(() => {});
+      }, 0);
+    }
     return newLead;
   }, []);
 
@@ -312,16 +319,10 @@ export function AppProvider({ children }) {
   const saveCadence   = useCallback((cad) => {
     if (cad.id) setCadences(cs => cs.map(c => c.id===cad.id?cad:c));
     else setCadences(cs => [...cs, { ...cad, id:Date.now() }]);
-    // Push cadence step summary to Google Sheets
-    setTimeout(() => {
-      const stepSummary = cad.steps?.map(s =>
-        `Day ${s.day}: ${s.channel} — ${s.angle || s.name || ''}`
-      ).join('\n') || '';
-      SheetsAdapter.pushGeneratedContent(
-        { business: 'Cadence: ' + cad.name, email: '', stage: 'Active' },
-        { email1: stepSummary }
-      ).catch(() => {});
-    }, 0);
+    // Phase 8D-1: cadence definitions no longer pushed to Sheets.
+    // Previously this created phantom lead rows (business: 'Cadence: <name>', email: '')
+    // in the Fresh Leads / Re-engagement tabs, polluting lead data with cadence templates
+    // and causing reconcileSheetLeads to import them as real leads on next sync.
   }, []);
   const deleteCadence = useCallback((id) => setCadences(cs => cs.filter(c=>c.id!==id)), []);
 

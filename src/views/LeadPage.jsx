@@ -1527,7 +1527,7 @@ function CadenceTab({ lead }) {
                   Prompt copied — paste Claude's {step.channel} response below:
                 </div>
                 {stepSaved === step.day ? (
-                  <div style={{ fontSize:11, fontWeight:600, color:'#10B981' }}>✓ Saved to activity log and pushed to Sheet!</div>
+                  <div style={{ fontSize:11, fontWeight:600, color:'#10B981' }}>✓ Saved to activity log!</div>
                 ) : (
                   <>
                     <textarea
@@ -1547,13 +1547,15 @@ function CadenceTab({ lead }) {
                         onClick={() => {
                           if (!stepPaste.trim()) return;
                           addActivity(lead.id, 'Email', `Cadence Day ${step.day} ${step.channel} generated`, { content: stepPaste, subject: '', source: 'copilot' });
-                          SheetsAdapter.pushGeneratedContent(lead, { email1: stepPaste }).catch(() => {});
+                          // Phase 8D-1: pushGeneratedContent removed.
+                          // Previously appended a full duplicate lead row per cadence step paste.
+                          // Cadence step content is stored as an activity — no sheet push needed.
                           setStepSaved(step.day);
                           setTimeout(() => { setStepPaste(''); setActiveStepGen(null); setStepSaved(null); }, 1500);
                         }}
                         disabled={!stepPaste.trim()}
                         style={{ flex:2, padding:'7px', borderRadius:8, border:'none', background: stepPaste.trim() ? '#5B3FC8' : 'rgba(91,63,200,0.3)', color:'#fff', fontSize:11, fontWeight:600, cursor: stepPaste.trim() ? 'pointer' : 'not-allowed', fontFamily:'inherit' }}>
-                        💾 Save + Push to Sheet
+                        💾 Save to Activity Log
                       </button>
                     </div>
                   </>
