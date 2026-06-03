@@ -354,22 +354,18 @@ export function buildVoicemailPrompt(lead) {
 ${ctx}
 
 ═══ TASK: WRITE A 30-SECOND VOICEMAIL SCRIPT ═══
-This will be spoken out loud. Write for ear, not eye.
+Write a single flowing voicemail script of exactly 75–85 words.
 
 Rules:
-- Exactly 75-85 words (30 seconds at normal pace)
+- Natural spoken language — write for the ear, not the eye
+- Use contractions and short phrases (how a real person talks)
 - Start with your name and company immediately
-- ONE specific hook relevant to this lead (their reviews, competitor, AI visibility)
-- End with your number AND an email mention ("I'll also shoot you a quick email")
-- Sound natural — use contractions, short phrases
-- NO reading from a script feel — write it conversationally
+- Include ONE specific hook using this lead's data (their review count, competitor, AI visibility gap, or keyword)
+- End with your phone number placeholder and mention you'll send a follow-up email
+- Output the script only — nothing else
+- No section labels, no brackets, no headers, no markdown, no word count
 
-Format:
-[INTRO - 1 sentence]
-[HOOK - 2 sentences max, specific to this lead]
-[CTA - 1-2 sentences, give callback number placeholder]
-
-Then provide: WORD COUNT: X | ESTIMATED TIME: ~Xs`;
+The script should flow as continuous spoken sentences. Do not separate it into sections.`;
 }
 
 // ─── LinkedIn prompt ──────────────────────────────────────────────────────────
@@ -599,6 +595,151 @@ Extract and return JSON with:
 - nextBestAction (string)
 - leadTemperature (Cold / Warm / Hot)
 - sentiment (Positive / Neutral / Negative)`;
+}
+
+// ─── normalizeGeneratedContent ────────────────────────────────────────────────
+//
+// Canonical output normalizer for all AI-generated content.
+// Replaces the private parseClaudeOutput function that lived inside Copilot.jsx.
+//
+// CONTRACT:
+//   normalizeGeneratedContent(mode, rawText) → { subject: string, body: string }
+//
+// Guarantees:
+//   - Never throws under any input
+//   - Empty / null / non-string input → { subject:'', body:'' }
+//   - Never returns multi-variant blobs (EMAIL 2, SMS 2, etc.)
+//   - Voicemail: strips ALL labels, brackets, word counts
+//   - LinkedIn: extracts connection request section only
+//   - Situational, cadence, notes, aeNotes: pass through (structured sections intentional)
+//
+// Parser hardening — survives AI format drift:
+//   - Email: exact delimiter → Subject: fallback → raw fallback
+//   - SMS: exact delimiter → strip delimiter line → raw fallback
+//   - Voicemail: regex strip all [LABEL] + WORD COUNT + ESTIMATED TIME lines
+//   - LinkedIn: exact delimiter → raw fallback
+//
+export function normalizeGeneratedContent(mode, rawText) {
+  // Guard — never throws, empty input returns empty output
+  if (!rawText || typeof rawText !== 'string' || !rawText.trim()) {
+    return { subject: '', body: '' };
+  }
+
+  const raw = rawText.trim();
+
+  // ── Extraction helper ──────────────────────────────────────────────────────
+  // Returns the text between startTag and endTag (exclusive), trimmed.
+  // Returns '' if startTag is not found.
+  const extract = (text, startTag, endTag) => {
+    const s = text.indexOf(startTag);
+    if (s === -1) return '';
+    const start = s + startTag.length;
+    const e = endTag ? text.indexOf(endTag, start) : -1;
+    return text.slice(start, e === -1 ? text.length : e).trim();
+  };
+
+  // ── EMAIL ──────────────────────────────────────────────────────────────────
+  // Extract EMAIL 1 only — never return EMAIL 2 or EMAIL 3.
+  // Fallback chain: exact delimiter → Subject: line scan → raw (capped at EMAIL 2 boundary)
+  if (mode === 'email') {
+    // Try exact delimiter first
+    let email1 = extract(raw, '=== EMAIL 1 ===', '=== EMAIL 2 ===');
+
+    // Fallback: alternate delimiter formats
+    if (!email1) email1 = extract(raw, 'EMAIL_1_START', 'EMAIL_1_END');
+
+    // Fallback: find first Subject: line in raw and take from there
+    // Only use this if we couldn't find a block at all
+    if (!email1) {
+      const subjectIdx = raw.search(/^Subject:/im);
+      if (subjectIdx !== -1) {
+        // Limit to before EMAIL 2 start if present
+        const email2Idx = raw.indexOf('=== EMAIL 2 ===');
+        email1 = email2Idx !== -1
+          ? raw.slice(subjectIdx, email2Idx).trim()
+          : raw.slice(subjectIdx).trim();
+      }
+    }
+
+    // Final fallback: use raw but cap at EMAIL 2 boundary
+    if (!email1) {
+      const email2Idx = raw.indexOf('=== EMAIL 2 ===');
+      email1 = email2Idx !== -1 ? raw.slice(0, email2Idx).trim() : raw;
+    }
+
+    // Parse subject line from the extracted block
+    const subjectMatch = email1.match(/^Subject:\s*(.+)/im);
+    const subject = subjectMatch ? subjectMatch[1].trim() : '';
+    // Remove subject line (and any blank line immediately after) from body
+    const body = email1
+      .replace(/^Subject:\s*.+\n?/im, '')
+      .trim();
+
+    return { subject, body };
+  }
+
+  // ── SMS ────────────────────────────────────────────────────────────────────
+  // Extract SMS 1 only. Strip the delimiter label line from the extracted text.
+  if (mode === 'sms') {
+    let sms1 = extract(raw, '=== SMS 1 ===', '=== SMS 2 ===');
+
+    // Fallback: alternate delimiter
+    if (!sms1) sms1 = extract(raw, 'SMS_1_START', 'SMS_1_END');
+
+    // Fallback: no delimiter — take full text but strip any === lines
+    if (!sms1) sms1 = raw.replace(/===.*===/g, '').trim();
+
+    // Strip any residual delimiter lines that ended up inside the block
+    const body = sms1
+      .replace(/^===.*===\s*\n?/gm, '')
+      .trim();
+
+    return { subject: 'SMS', body };
+  }
+
+  // ── VOICEMAIL ──────────────────────────────────────────────────────────────
+  // Strip ALL structural labels — [INTRO], [HOOK], [CTA], bracket patterns,
+  // WORD COUNT lines, ESTIMATED TIME lines, and VOICEMAIL SCRIPT headers.
+  if (mode === 'voicemail') {
+    let body = raw;
+
+    // Strip **VOICEMAIL SCRIPT** headers and similar markdown headers
+    body = body.replace(/\*{0,2}VOICEMAIL SCRIPT\*{0,2}\s*\n?/gi, '');
+    body = body.replace(/^#+\s+.*$/gm, '');                        // ## headings
+
+    // Strip [LABEL] bracket patterns: [INTRO], [HOOK], [CTA], [INTRO - 1 sentence], etc.
+    body = body.replace(/\[[^\]]*\]\s*[-–]?\s*/g, '');
+
+    // Strip WORD COUNT and ESTIMATED TIME lines (whole line)
+    body = body.replace(/^WORD COUNT\s*:.*$/gim, '');
+    body = body.replace(/^ESTIMATED TIME\s*:.*$/gim, '');
+    body = body.replace(/^WORD COUNT\s*\|.*$/gim, '');             // "WORD COUNT: X | ESTIMATED TIME: ~Xs"
+
+    // Collapse multiple consecutive blank lines into one
+    body = body.replace(/\n{3,}/g, '\n\n');
+
+    return { subject: 'Voicemail Script', body: body.trim() };
+  }
+
+  // ── LINKEDIN ───────────────────────────────────────────────────────────────
+  // Extract CONNECTION REQUEST section only — never return follow-up variants.
+  if (mode === 'linkedin') {
+    const connection =
+      extract(raw, '=== CONNECTION REQUEST ===', '=== FOLLOW-UP 1 ===') ||
+      extract(raw, '=== CONNECTION REQUEST ===', '=== FOLLOW-UP 2 ===') ||
+      extract(raw, 'CONNECTION REQUEST:', 'FOLLOW-UP') ||
+      raw;   // final fallback: return raw if no delimiter found
+
+    const body = connection
+      .replace(/^===.*===\s*\n?/gm, '')   // strip residual delimiter lines
+      .trim();
+
+    return { subject: 'LinkedIn Connection', body };
+  }
+
+  // ── PASS-THROUGH MODES ─────────────────────────────────────────────────────
+  // situational, cadence, notes, aeNotes — structured sections are intentional.
+  return { subject: mode, body: raw };
 }
 
 // ─── Normalize mode to lowercase for all internal use ─────────────────────────

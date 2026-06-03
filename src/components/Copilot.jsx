@@ -4,7 +4,7 @@ import { X, Zap, Copy, ExternalLink, CheckCircle2, ArrowRight,
          Brain, GitBranch, FileText, AlignLeft, Smile, Plus,
          ChevronRight, Link2, Loader } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { buildPrompt, buildTouchHistory } from '../services/prompts';
+import { buildPrompt, buildTouchHistory, normalizeGeneratedContent } from '../services/prompts';
 import callAI from '../services/aiProvider';
 import { SheetsAdapter } from '../services/sheetsAdapter';
 
@@ -109,50 +109,9 @@ function Launcher({ theme, onSelect }) {
   );
 }
 
-// ── Claude output parser ──────────────────────────────────────────────────────
-function parseClaudeOutput(mode, rawText) {
-  if (!rawText?.trim()) return { subject: '', body: rawText || '', raw: rawText || '' };
-
-  const extract = (startTag, endTag) => {
-    const s = rawText.indexOf(startTag);
-    if (s === -1) return '';
-    const e = endTag ? rawText.indexOf(endTag) : rawText.length;
-    return rawText.slice(s + startTag.length, e === -1 ? rawText.length : e).trim();
-  };
-
-  if (mode === 'email') {
-    const email1 = extract('=== EMAIL 1 ===', '=== EMAIL 2 ===') ||
-                   extract('EMAIL_1_START', 'EMAIL_1_END') ||
-                   rawText;
-    const subjectMatch = email1.match(/Subject:\s*(.+)/i);
-    const subject = subjectMatch ? subjectMatch[1].trim() : '';
-    const body = email1.replace(/Subject:.+/i, '').trim();
-    return { subject, body, raw: rawText };
-  }
-
-  if (mode === 'sms') {
-    const sms1 = extract('=== SMS 1 ===', '=== SMS 2 ===') ||
-                 extract('SMS_1_START', 'SMS_1_END') ||
-                 rawText;
-    return { subject: 'SMS', body: sms1.trim(), raw: rawText };
-  }
-
-  if (mode === 'voicemail') {
-    return { subject: '30-sec Voicemail', body: rawText.trim(), raw: rawText };
-  }
-
-  if (mode === 'linkedin') {
-    const connection = extract('=== CONNECTION REQUEST ===', '=== FOLLOW-UP 1 ===') ||
-                       rawText;
-    return { subject: 'LinkedIn Connection', body: connection.trim(), raw: rawText };
-  }
-
-  return { subject: mode, body: rawText.trim(), raw: rawText };
-}
-
 // ── Wizard ────────────────────────────────────────────────────────────────────
 function Wizard({ mode, theme, onBack }) {
-  const { activeLead, closeCopilot, addTouchEntry, addActivityEntry, updateIntelligence, settings } = useApp();
+  const { activeLead, copilot, closeCopilot, addTouchEntry, addActivityEntry, updateIntelligence, settings } = useApp();
   const [step,        setStep]       = useState(0);
   const [copied,      setCopied]     = useState(false);
   const [saved,       setSaved]      = useState(false);
@@ -167,7 +126,10 @@ function Wizard({ mode, theme, onBack }) {
   const isGemini  = settings?.aiProvider === 'gemini';
   const hasGemKey = isGemini && settings?.geminiKey && !settings.geminiKey.includes('•');
 
-  const safeLead  = activeLead || null;
+  // copilot.lead is set by openCopilot(mode, lead) from any view.
+  // activeLead is the fallback for launches from LeadPage itself.
+  // This order ensures Copilot always has context regardless of launch origin.
+  const safeLead  = copilot.lead || activeLead || null;
   const preview   = buildPreview(mode, safeLead);
   const rawPrompt = safeLead ? buildPrompt(mode, safeLead) : 'Open a lead first.';
   const pct       = step===0?33:step===1?66:100;
@@ -208,8 +170,10 @@ function Wizard({ mode, theme, onBack }) {
 
   const handleSave = () => {
     const rawContent = aiOutput || preview.body;
-    const parsed = parseClaudeOutput(mode, rawContent);
-    const content = parsed.body || parsed.raw;
+    // normalizeGeneratedContent is the canonical normalizer — never stores raw scaffolding.
+    // Empty rawContent returns { subject:'', body:'' } — safe to proceed with empty content.
+    const parsed  = normalizeGeneratedContent(mode, rawContent);
+    const content = parsed.body || rawContent.trim();  // trim-only fallback if body empty after normalization
 
     if (safeLead) {
       addTouchEntry(safeLead.id, {
