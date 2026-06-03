@@ -1437,7 +1437,10 @@ function CadenceTab({ lead }) {
               CadenceTab renders the first day's steps as pending. */}
           {currentDay === 0 && stepsInCadence.length > 0 && (
             <button
-              onClick={() => updateLead(lead.id, { cadenceDay: 1 })}
+              onClick={() => {
+                updateLead(lead.id, { cadenceDay: 1 });
+                addActivity(lead.id, 'Cadence Update', `Cadence started: Day 1${lead.cadenceName ? ' — ' + lead.cadenceName : ''}`, { source: 'cadence', cadenceDay: 1 });
+              }}
               style={{ display:'flex', alignItems:'center', gap:6, padding:'7px 14px', borderRadius:8, border:'none', background:'#5B3FC8', color:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'inherit', boxShadow:'0 4px 12px rgba(91,63,200,0.3)', transition:'background 0.15s' }}
               onMouseEnter={e => e.currentTarget.style.background='#4828B5'}
               onMouseLeave={e => e.currentTarget.style.background='#5B3FC8'}>

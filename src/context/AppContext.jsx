@@ -297,6 +297,17 @@ export function AppProvider({ children }) {
       stepChannel: step?.channel  || 'Unknown',
       cadenceDay,
     });
+
+    // Phase 9C-1: check if cadence is now complete after this step.
+    // Read the updated seqLog to determine completion status.
+    const updatedSeqLog = { ...(lead?.seqLog || {}), [stepKey]: true };
+    const updatedLead   = { ...lead, seqLog: updatedSeqLog };
+    if (isCadenceComplete(updatedLead)) {
+      addActivity(leadId, 'Cadence Update', `Cadence complete: ${lead?.cadenceName || 'Outreach sequence'}`, {
+        source: 'cadence',
+        cadenceDay: lead?.cadenceDay || cadenceDay,
+      });
+    }
   }, [leads, addActivity]);
 
   const advanceCadenceDay = useCallback((leadId) => {
